@@ -149,22 +149,22 @@ def peak_picking(self, st_adj=6e2, q_noise=0.89, dbs_par={'eps': 0.02, 'min_samp
     #X2[:,0] = X2[:,0]/
     print(f'Clustering X, shape: {X2.shape}')
 
-    # #plt.scatter(X2[:,0], X2[:,1])
-    # #oo= self.vis_spectrum(q_noise=self.q_noise, selection=selection)
-    # #return(X2)
-    # # perform clustering
-    # dbs = DBSCAN(eps=self.dbs_par['eps'], min_samples=self.dbs_par['min_samples'], algorithm='brute').fit(X2[..., 0:2])
-    # self.cl_membership = dbs.labels_
-    #
-    # cl_mem=np.ones(self.Xf.shape[0])*-1
-    # cl_mem[noise==0]=dbs.labels_
-    # self.Xf = np.c_[self.Xf, cl_mem]
-    # res = np.unique(self.cl_membership, return_counts=True)
-    # print('Number of L1 clusters: ' + str(len(res[0])))
-    #
-    # # check if feature intensity are gaussian-like
-    # fs = feat_summary(X2, self.cl_membership, st_len_min=10, plot=plot, mz_bound=0.001, rt_bound=3)
-    # print('Number of L2 clusters: ' + str(fs.shape[0]))
-    #
-    # self.fs = est_intensities(fs, self.cl_membership, X2)
-    # # return fs
+    #plt.scatter(X2[:,0], X2[:,1])
+    #oo= self.vis_spectrum(q_noise=self.q_noise, selection=selection)
+    #return(X2)
+    # perform clustering
+    dbs = DBSCAN(eps=self.dbs_par['eps'], min_samples=self.dbs_par['min_samples'], algorithm='auto').fit(X2[..., 0:2])
+    self.cl_membership = dbs.labels_
+
+    cl_mem=np.ones(self.Xf.shape[0])*-1
+    cl_mem[noise==0]=dbs.labels_
+    self.Xf = np.c_[self.Xf, cl_mem]
+    res = np.unique(self.cl_membership, return_counts=True)
+    print('Number of L1 clusters: ' + str(len(res[0])))
+
+    # check if feature intensity are gaussian-like
+    fs = feat_summary(X2, self.cl_membership, st_len_min=10, plot=plot, mz_bound=0.001, rt_bound=3)
+    print('Number of L2 clusters: ' + str(fs.shape[0]))
+
+    self.fs = est_intensities(fs, self.cl_membership, X2)
+    # return fs

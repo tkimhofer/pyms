@@ -4,6 +4,7 @@ class list_exp:
         import subprocess
         import os
         import pandas as pd
+        import numpy as np
 
         self.ftype = ftype
         self.path = path
@@ -34,13 +35,26 @@ class list_exp:
         self.df['fsize_mb'] = fsize
         self.df['fsize_mb'] = self.df['fsize_mb'].values / 1000 ** 2
         self.df['mtime'] = mtime
+        mtime_max, mtime_min = (np.argmax(self.df['mtime'].values), np.argmin(self.df['mtime'].values))
+        fsize_mb_max, fsize_mb_min = (np.argmax(self.df['fsize_mb'].values), np.argmin(self.df['fsize_mb'].values))
         self.df['mtime'] = pd.to_datetime(self.df['mtime'], unit='s').dt.floor('T')
 
-        self.df.exp.str.split('/')
+        # self.df.exp.str.split('/')
 
         self.df.exp = [os.path.relpath(self.df.exp.values[x], path) for x in range(len(self.df.exp.values))]
-        os.path.relpath(self.df.exp.values[0], path)
+        self.files =  self.df.exp.values
+        # os.path.relpath(self.df.exp.values[0], path)
 
+        self.df.index = ['s' + str(i) for i in range(self.df.shape[0])]
+
+        self.n_exp = (self.df.shape[0])
+
+        print('---')
+        print(f'Number of mzml files: {self.n_exp}')
+        print(f'Files created from { self.df.mtime.iloc[mtime_min]} to { self.df.mtime.iloc[mtime_max]}')
+        print(f'Files size ranging from {round(self.df.fsize_mb.iloc[fsize_mb_min],1)} MB to {round(self.df.fsize_mb.iloc[fsize_mb_max], 1)} MB')
+        print(f'For detailed experiment list see obj.df')
+        print('---')
         # summary = self.df.groupby(['exp']).agg(n=('fsize'), size_byte=('fsize', 'mean')),
         #                                   maxdiff_byte=('size', lambda x: max(x) - min(x)),
         #                                   mtime=('mtime', 'max')).reset_index()
@@ -60,25 +74,32 @@ class list_exp:
 class ExpSet(list_exp):
     def __init__(self, path, msExp):
         super().__init__(path, ftype='mzml', print_summary=True)
-        #self.exp = []
 
-        #self.a = msExp(fpath = self.files[3])
+    def read(self, pattern=None, multicore=True):
+        import os
+        import numpy as np
+        if not isinstance(pattern, type(None)):
+            import re
+            self.files = list(filter(lambda x: re.search(pattern, x), self.files))
+            print('Selected are ' + str(len(self.files)) + ' files. Start importing...')
+            self.df = self.df[self.df.exp.isin(self.files)]
+            self.df.index = ['s' + str(i) for i in range(self.df.shape[0])]
+        else: print('Start importing...')
 
-        # import multiprocessing as mp
-        # pool = mp.Pool(mp.cpu_count())
-        # pool.map(self.read_exp(i), [i for i in self.files])
-        # pool.close()
-        # pool.join()
-    def read(self, pattern):
-        import re
-        self.files = list(filter(lambda x: re.search(pattern, x), self.files))
-        print('Importing ' + str(len(self.files)) + ' files.')
+        if multicore:
+            import multiprocessing
+            from joblib import Parallel, delayed
 
-        import multiprocessing
-        from joblib import Parallel, delayed
+            ncore = np.min([multiprocessing.cpu_count() - 2, len(self.files)])
+            print(f'Using {ncore} workers.')
+            self.exp = Parallel(n_jobs=ncore)(delayed(msExp)(os.path.join(self.path, i), '1', False) for i in self.files)
+        else:
+            self.exp = []
+            for f in self.files:
+                fpath=os.path.join(self.path, f)
+                self.exp.append(msExp(fpath, '1', False))
 
-        ncore = multiprocessing.cpu_count() - 2
-        self.exp = Parallel(n_jobs=ncore)(delayed(msExp)(i, '1', False) for i in self.files)
+
 
 
 
@@ -88,7 +109,6 @@ class msExp:
     from ._reading import read_mzml, read_bin, exp_meta, node_attr_recurse, rec_attrib, extract_mass_spectrum_lev1
 
     def __init__(self, fpath, mslev='1', print_summary=False):
-        print('Reading: ' + fpath)
         self.fpath = fpath
         self.read_exp(mslevel=mslev, print_summary=print_summary)
 
@@ -102,7 +122,7 @@ class msExp:
         self.flag=str(mslevel)
 
         out = self.read_mzml(flag=self.flag, print_summary=print_summary)
-        print(out[0])
+        print('file: ' + self.fpath + '-->' + out[0])
 
         if 'srm' in out[0]:
             self.dstype, self.df, self.scantime, self.I, self.summary = out
@@ -415,7 +435,7 @@ class msExp:
 
         return (fig, ax)
 
-    def plt_chromatogram(self, tmin=None, tmax=None, type=['tic', 'bpc', 'xic'], xic_mz=[], xic_ppm=10):
+    def plt_chromatogram(self, tmin=None, tmax=None, ctype=['tic', 'bpc', 'xic'], xic_mz=[], xic_ppm=10):
         import numpy as np
         import matplotlib.pyplot as plt
 
@@ -423,22 +443,40 @@ class msExp:
         df_l2 = self.df.loc[self.df.ms_level == '2']
         if df_l1.shape[0] == 0: raise ValueError('mslevel 1 in df does not exist or is not defined')
 
+        xic = False
+        tic = False
+        bpc = False
+
+        if not isinstance(ctype, list):
+            ctype=[ctype]
+        if any([x in 'xic' for x in ctype]):
+            xic = True
+        if any([x in 'bpc' for x in ctype]):
+            bpc = True
+        if any([x in 'tic' for x in ctype]):
+            tic = True
+
+        if ((xic == False) & (tic == False) & (bpc == False)):
+            raise ValueError('ctype error: define chromatogram type(s) as tic, bpc or xic (string or list of strings).')
 
         if isinstance(tmin, type(None)):
             tmin = df_l1.scan_start_time.min()
         if isinstance(tmax, type(None)):
             tmax = df_l1.scan_start_time.max()
 
-        if any([x in 'tic' for x in type]):
-            xx, xy = self.xic(xic_mz, xic_ppm, rt_min=tmin, rt_max=tmax)
-
         fig = plt.figure()
         ax1 = fig.add_subplot(111)
+
+        if xic:
+            xx, xy = self.xic(xic_mz, xic_ppm, rt_min=tmin, rt_max=tmax)
+            ax1.plot(xx, xy.astype(float), label='XIC ' + str(xic_mz) + 'm/z')
+        if tic:
+            ax1.plot(df_l1.scan_start_time, df_l1.total_ion_current.astype(float), label='TIC')
+        if bpc:
+            ax1.plot(df_l1.scan_start_time, df_l1.base_peak_intensity.astype(float), label='BPC')
+
         # ax1.set_title(df.fname[0], fontsize=8, y=-0.15)
         ax1.text(1.04, 0, df_l1.fname[0], rotation=90, fontsize=6, transform=ax1.transAxes)
-        ax1.plot(df_l1.scan_start_time, df_l1.total_ion_current.astype(float), label='TIC')
-        ax1.plot(df_l1.scan_start_time, df_l1.base_peak_intensity.astype(float), label='BPC')
-        ax1.plot(xx, xy.astype(float), label='XIC ' + str(xic_mx)+'m/z')
 
         if df_l2.shape[0] == 0:
             print('Exp contains no CID data')
