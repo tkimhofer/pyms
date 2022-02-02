@@ -2,16 +2,22 @@ class list_exp:
     def __init__(self, path, ftype='mzml', print_summary=True):
 
         import subprocess
-        import os
         import pandas as pd
         import numpy as np
 
         self.ftype = ftype
         self.path = path
+        self.files = []
 
-        cmd = 'find ' + self.path + ' -type f -iname *' + ftype
-        sp = subprocess.getoutput(cmd)
-        self.files = sp.split('\n')
+        import glob, os
+        self.path=os.path.join(path, '')
+
+        for file in glob.glob(self.path+"*.mzML"):
+            self.files.append(file)
+
+        # cmd = 'find ' + self.path + ' -type f -iname *' + ftype
+        # sp = subprocess.getoutput(cmd)
+        # self.files = sp.split('\n')
         self.nfiles = len(self.files)
 
         # check if bruker fits and qc's are included

@@ -64,7 +64,7 @@ def read_mzml(self, flag='1', print_summary=True):
     if all(['c' in x for x in out31.keys()]):
         self.dstype = 'srm, nb of functions: ' + str(len(cg))
 
-        # collecte chromatogram data
+        # collect chromatogram data
         idx=np.where((df['selected_reaction_monitoring_chromatogram']==True).values)[0]
         le = len(cg[idx[0]])
         if le != 2:
