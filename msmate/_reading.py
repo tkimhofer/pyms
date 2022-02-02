@@ -1,13 +1,12 @@
-def read_mzml(self, sidx=0, flag='1', print_summary=True):
+def read_mzml(self, flag='1', print_summary=True):
     # read in data, files index 0 (see below)
+    # flat is 1/2 for msLevel 1 or 2
     import pandas as pd
     import re
     import numpy as np
-    import xml.etree.ElementTree as ET
+    import xml.etree.cElementTree as ET
 
-    fil = self.files[sidx]
-    print(fil)
-    tree = ET.parse(fil)
+    tree = ET.parse(self.fpath)
     root = tree.getroot()
 
     child = children(root)
@@ -56,14 +55,14 @@ def read_mzml(self, sidx=0, flag='1', print_summary=True):
 
     df = pd.DataFrame(meta, index=list(out31.keys()))
     df.columns = [self.obo_ids[x]['name'].replace(' ', '_') if x in self.obo_ids.keys() else x for x in df.columns.values]
-    df['fname'] = fil
+    df['fname'] = self.fpath
     # summarise columns
     summary = df.describe().T
 
-    dstype='Ukwn'
+    self.dstype='Ukwn'
     # if all chromatograms -> targeted assay
     if all(['c' in x for x in out31.keys()]):
-        dstype = 'srm, nb of functions: ' + str(len(cg))
+        self.dstype = 'srm, nb of functions: ' + str(len(cg))
 
         # collecte chromatogram data
         idx=np.where((df['selected_reaction_monitoring_chromatogram']==True).values)[0]
@@ -73,7 +72,7 @@ def read_mzml(self, sidx=0, flag='1', print_summary=True):
         stime = [cg[0] for i in idx]
         Int = [cg[1] for i in idx]
 
-        return (dstype, df, stime, Int, summary)
+        return (self.dstype, df, stime, Int, summary)
 
     else:
         dstype = 'untargeted assay'
@@ -96,13 +95,6 @@ def read_mzml(self, sidx=0, flag='1', print_summary=True):
 
         return (dstype, df, scanid, mz, Int, stime, summary)
 
-
-
-
-
-
-
-
 def collect_spectra_chrom(s, ii={}, d=9, c=0, flag='1', tag='', obos={}):
     import re
     if c == d: return
@@ -124,7 +116,6 @@ def collect_spectra_chrom(s, ii={}, d=9, c=0, flag='1', tag='', obos={}):
 
     return ii
 
-
 def extr_spectrum_chromg(x, flag='1', rtype='s', obos=[]):
     add_meta = vaPar_recurse(x, ii={}, d=6, c=0, dname='name', dval='value', ddt='all')
 
@@ -144,7 +135,6 @@ def extr_spectrum_chromg(x, flag='1', rtype='s', obos=[]):
         out = data_recurse1(x, ii={}, d=9, c=0, ip='', obos=obos)
     return (add_meta, out)
 
-
 def data_recurse1(s, ii={}, d=9, c=0, ip='', obos=[]):
     import re
     # recursively extracts attributes from node s and with depth  d, add label children iterator as prefix
@@ -163,7 +153,6 @@ def data_recurse1(s, ii={}, d=9, c=0, ip='', obos=[]):
                 ip = 's'
             data_recurse1(s=ss[i], ii=ii, d=d, c=c + 1, ip=ip, obos=obos)
     return ii
-
 
 def dt_co(dvars):
     import numpy as np
@@ -203,7 +192,6 @@ def dt_co(dvars):
 
     return (dt, co, ft)
 
-
 def read_bin(k, obo_ids):
     # k is binary array
     import numpy as np
@@ -224,7 +212,6 @@ def read_bin(k, obo_ids):
     out = {'i': [{x: obo_ids[x]['name']} for x in dvars.keys() if x in obo_ids.keys()], 'd': d}
 
     return (out, ft)
-
 
 def vaPar_recurse(s, ii={}, d=9, c=0, dname='accession', dval='value', ddt='all'):
     import re
@@ -250,7 +237,6 @@ def vaPar_recurse(s, ii={}, d=9, c=0, dname='accession', dval='value', ddt='all'
         for i in range(len(ss)):
             vaPar_recurse(s=ss[i], ii=ii, d=d, c=c + 1, ddt=ddt)
     return ii
-
 
 def get_obo(obos, obo_ids={}):
     # download obo annotation data
@@ -348,7 +334,6 @@ def read_exp(path, ftype='mzML', plot_chrom=False, n_max=1000, only_summary=Fals
         df = pd.concat(df_summary).T
         return (df, data)
 
-
 def read_mzml_file(root, ms_lev=1, plot=True):
     from tqdm import tqdm
     import time
@@ -434,48 +419,11 @@ def read_mzml_file(root, ms_lev=1, plot=True):
     df.total_ion_current=df.total_ion_current.astype(float)
     df.base_peak_intensity=df.base_peak_intensity.astype(float)
 
-    if plot:
-        pl = plt_chromatograms(df, tmin, tmax)
-        return (mz, I, df, pl)
-    else:
-        return (mz, I, df)
-
-def plt_chromatograms(df, tmin, tmax):
-    import numpy as np
-    import matplotlib.pyplot as plt
-    fig = plt.figure()
-    ax1 = fig.add_subplot(111)
-    #ax1.set_title(df.fname[0], fontsize=8, y=-0.15)
-    ax1.text(1.04, 0, df.fname[0],  rotation=90, fontsize=6, transform=ax1.transAxes)
-    ax1.plot(df.scan_start_time, df.total_ion_current, label='TIC')
-    ax1.plot(df.scan_start_time, df.base_peak_intensity, label='BPC')
-    fig.canvas.draw()
-    offset = ax1.yaxis.get_major_formatter().get_offset()
-    # offset = ax1.get_xaxis().get_offset_text()
-
-    ax1.set_xlabel(r"$\bfs$")
-    ax2 = ax1.twiny()
-
-    ax1.yaxis.offsetText.set_visible(False)
-    # ax1.yaxis.set_label_text("original label" + " " + offset)
-    ax1.yaxis.set_label_text(r"$\bfInt/count$ ($x 10^" + offset.replace('1e', '') + '$)')
-
-    def tick_conv(X):
-        V = X / 60
-        return ["%.2f" % z for z in V]
-
-    tick_loc = np.linspace(0, np.round((tmax - tmin) / 60, 0), (round(np.round((tmax - tmin) / 60, 0) / 2) + 1)) * 60
-    # tick_loc = np.arange(np.round((tmax - tmin) / 60, 0), 0.1)*60
-    ax2.set_xlim(ax1.get_xlim())
-    ax2.set_xticks(tick_loc)
-    ax2.set_xticklabels(tick_conv(tick_loc))
-    ax2.set_xlabel(r"$\bfmin$")
-    # ax2.yaxis.set_label_text(r"$Int/count$ " + offset)
-
-    ax1.legend(loc='best', bbox_to_anchor=(0.5, 0.5, 0.5, 0.5))
-
-    fig.show()
-    return (fig, ax1, ax2)
+    # if plot:
+    #     pl = plt_chromatograms(df, tmin, tmax)
+    #     return (mz, I, df, pl)
+    # else:
+    return (mz, I, df)
 
 def rec_attrib(s, ii={}):
     # recursively collecting cvParam

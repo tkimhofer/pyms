@@ -39,8 +39,6 @@ def est_intensities(fs, cl_membership, X2):
 
     return fs
 
-
-
 def cl_summary(cl_membership, X2, cl_id=7):
     # cluster summary
     # X is data matrix
@@ -49,6 +47,10 @@ def cl_summary(cl_membership, X2, cl_id=7):
     # st_adjust is scantime adjustment factor
     import numpy as np
     idx=np.where(cl_membership == cl_id)[0]
+    # add mz and rt where I is max
+    # validate if cluster contains only a single peak or if there is peak overlap: qc score of cluster!
+    idx_maxI = np.argmax(X2[idx,2])
+    mz_maxI = X2[idx[idx_maxI], 1]
     mz_min=np.min(X2[idx,1])
     mz_max=np.max(X2[idx, 1])
     mz_mean = np.mean(X2[idx, 1])
@@ -57,20 +59,19 @@ def cl_summary(cl_membership, X2, cl_id=7):
     rt_mean = np.mean(X2[idx,3])
     rt_min = np.min(X2[idx,3])
     rt_max = np.max(X2[idx,3])
+    rt_maxI = X2[idx[idx_maxI], 3]
 
     # st_min = np.min(X[1,idx])
     # st_max = np.max(X[1, idx])
 
     od ={ 'n': len(idx), \
-          'mz_mean': np.round(mz_mean, 4) , \
-          'rt_mean': np.round(rt_mean, 1), \
+          'mz_maxI': mz_maxI , \
+          'rt_maxI': rt_maxI, \
           'st_span': len(np.unique(X2[idx,0])),\
-          'ppm': np.round(ppm), 'mz_min': np.round(mz_min, 4), 'mz_max': np.round(mz_max, 4),\
-          'telut': np.round(rt_max - rt_min), 'rt_min': np.round(rt_min, 1), 'rt_max': np.round(rt_max, 1)}
+          'ppm': np.round(ppm), 'mz_min': np.round(mz_min, 4), 'mz_mean': np.round(mz_mean, 4), 'mz_max': np.round(mz_max, 4),\
+          'telut': np.round(rt_max - rt_min), 'rt_min': np.round(rt_min, 1), 'rt_mean': np.round(rt_mean, 1), 'rt_max': np.round(rt_max, 1)}
 
     return od
-
-
 
 def feat_summary(X2, cl_membership, st_len_min=10, plot=True, mz_bound=0.001, rt_bound=3):
     import matplotlib.pyplot as plt
@@ -120,10 +121,6 @@ def feat_summary(X2, cl_membership, st_len_min=10, plot=True, mz_bound=0.001, rt
     ff = pd.DataFrame(feat)
     return ff.sort_values('ppm')
 
-
-
-
-
 def peak_picking(self, st_adj=6e2, q_noise=0.89, dbs_par={'eps': 0.02, 'min_samples': 2},
                  selection={'mz_min': None, 'mz_max': None, 'rt_min': None, 'rt_max': None},
                  plot=False):
@@ -150,23 +147,24 @@ def peak_picking(self, st_adj=6e2, q_noise=0.89, dbs_par={'eps': 0.02, 'min_samp
     self.Xf=np.c_[self.Xf, noise]
     X2 = self.Xf[noise==0, ...]
     #X2[:,0] = X2[:,0]/
+    print(f'Clustering X, shape: {X2.shape}')
 
-    #plt.scatter(X2[:,0], X2[:,1])
-    #oo= self.vis_spectrum(q_noise=self.q_noise, selection=selection)
-    #return(X2)
-    # perform clustering
-    dbs = DBSCAN(eps=self.dbs_par['eps'], min_samples=self.dbs_par['min_samples'], algorithm='brute').fit(X2[..., 0:2])
-    self.cl_membership = dbs.labels_
-
-    cl_mem=np.ones(self.Xf.shape[0])*-1
-    cl_mem[noise==0]=dbs.labels_
-    self.Xf = np.c_[self.Xf, cl_mem]
-    res = np.unique(self.cl_membership, return_counts=True)
-    print('Number of L1 clusters: ' + str(len(res[0])))
-
-    # check if feature intensity are gaussian-like
-    fs = feat_summary(X2, self.cl_membership, st_len_min=10, plot=plot, mz_bound=0.001, rt_bound=3)
-    print('Number of L2 clusters: ' + str(fs.shape[0]))
-
-    self.fs = est_intensities(fs, self.cl_membership, X2)
-    # return fs
+    # #plt.scatter(X2[:,0], X2[:,1])
+    # #oo= self.vis_spectrum(q_noise=self.q_noise, selection=selection)
+    # #return(X2)
+    # # perform clustering
+    # dbs = DBSCAN(eps=self.dbs_par['eps'], min_samples=self.dbs_par['min_samples'], algorithm='brute').fit(X2[..., 0:2])
+    # self.cl_membership = dbs.labels_
+    #
+    # cl_mem=np.ones(self.Xf.shape[0])*-1
+    # cl_mem[noise==0]=dbs.labels_
+    # self.Xf = np.c_[self.Xf, cl_mem]
+    # res = np.unique(self.cl_membership, return_counts=True)
+    # print('Number of L1 clusters: ' + str(len(res[0])))
+    #
+    # # check if feature intensity are gaussian-like
+    # fs = feat_summary(X2, self.cl_membership, st_len_min=10, plot=plot, mz_bound=0.001, rt_bound=3)
+    # print('Number of L2 clusters: ' + str(fs.shape[0]))
+    #
+    # self.fs = est_intensities(fs, self.cl_membership, X2)
+    # # return fs

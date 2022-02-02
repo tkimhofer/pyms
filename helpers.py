@@ -2,28 +2,28 @@
 
 
 
-def read_exp(path, ftype='mzML', plot_chrom=False, n_max=1000):
-    import subprocess
-    import xml.etree.ElementTree as ET
-    # import pandas as pd
-    # import numpy as np
-
-    cmd = 'find ' + path + ' -type f -iname *'+ ftype
-    sp = subprocess.getoutput(cmd)
-    files = sp.split('\n')
-
-    if len(files) > n_max:
-        files=files[0:n_max]
-
-    data=[]
-    for fid in files:
-        print(fid)
-        tree = ET.parse(fid)
-        root = tree.getroot()
-        out = read_mzml_file(root, ms_lev=1, plot=plot_chrom)
-        data.append(out[0:3])
-
-    return data
+# def read_exp(path, ftype='mzML', plot_chrom=False, n_max=1000):
+#     import subprocess
+#     import xml.etree.ElementTree as ET
+#     # import pandas as pd
+#     # import numpy as np
+#
+#     cmd = 'find ' + path + ' -type f -iname *'+ ftype
+#     sp = subprocess.getoutput(cmd)
+#     files = sp.split('\n')
+#
+#     if len(files) > n_max:
+#         files=files[0:n_max]
+#
+#     data=[]
+#     for fid in files:
+#         print(fid)
+#         tree = ET.parse(fid)
+#         root = tree.getroot()
+#         out = read_mzml_file(root, ms_lev=1, plot=plot_chrom)
+#         data.append(out[0:3])
+#
+#     return data
 
 
 def read_mzml_file(root, ms_lev=1, plot=True):
@@ -124,8 +124,8 @@ def plt_chromatograms(df, tmin, tmax):
     ax1 = fig.add_subplot(111)
     #ax1.set_title(df.fname[0], fontsize=8, y=-0.15)
     ax1.text(1.04, 0, df.fname[0],  rotation=90, fontsize=6, transform=ax1.transAxes)
-    ax1.plot(df.scan_start_time, df.total_ion_current, label='TIC')
-    ax1.plot(df.scan_start_time, df.base_peak_intensity, label='BPC')
+    ax1.plot(df.scan_start_time, df.total_ion_current.astype(float), label='TIC')
+    ax1.plot(df.scan_start_time, df.base_peak_intensity.astype(float), label='BPC')
     fig.canvas.draw()
     offset = ax1.yaxis.get_major_formatter().get_offset()
     # offset = ax1.get_xaxis().get_offset_text()

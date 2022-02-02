@@ -1,35 +1,79 @@
-import sys
-
-import scipy.stats
-
-sys.path.append('./')
-from msmate import ms_exp
+# import sys
+# sys.path.append('./')
+# from msmate import ms_exp
+import time
 import msmate as ms
 import matplotlib.pyplot as plt
 import numpy as np
 from importlib import reload
 reload(ms)
-from sklearn.cluster import DBSCAN, OPTICS
+# from sklearn.cluster import DBSCAN, OPTICS
 import pandas as pd
 
-path='/Users/torbenkimhofer/Rproj/cam_cov_lcms/dat/'
-path='/Users/torbenkimhofer/Desktop/'
-
-ms.
-dd =read_exp(path, ftype='mzML', plot_chrom=True, n_max=1)
-
-out = ms.ms_exp(dd[0])
-
-selection={'mz_min':610, 'mz_max':630, 'rt_min': 4, 'rt_max': 6.54}
-out.vis_spectrum(q_noise=0.6, selection=selection)
+# path='/Users/torbenkimhofer/Rproj/cam_cov_lcms/dat/'
+# path='/Volumes/Backup\ Plus/hayley/'
+path='/Volumes/Backup\ Plus/Cambridge_RP_NEG/'
+path='/Users/tk2812/py/msfiles/'
 
 
-out.find_isotopes()
 
-len(out.isotopes)
-gz1=out.isotopes[3]
-out.vis_ipattern( gz1, b_mz=4, b_rt=30, rt_bound=0.51, mz_bound=0.2)
 
+d = ms.list_exp(path)
+test=ms.ExpSet(path, ms.msExp)
+test.read(pattern='DDA')
+
+test.exp[1].plt_chromatogram(tmin=None, tmax=None, type=['tic', 'bpc', 'xic'], xic_mz=50, xic_ppm=10)
+(test.exp[0]).xic(mz=100, ppm=10, rt_min=None, rt_max=None)
+
+
+
+for x in test.exp:
+    x.plt_chromatogram()
+
+
+test.exp
+
+
+
+exp = ms.msExp(d.files[3])
+
+
+
+dd = ms.ms_exp(path, fending='mzML')
+
+dd.read_exp(fidx=0, mslevel='0', print_summary=True)
+dd.plt_chromatogram()
+
+
+rr=dd
+rr.read_exp(fidx=1, mslevel='0', print_summary=True)
+rr.plt_chromatogram()
+
+
+
+selection={'mz_min':0, 'mz_max':1530, 'rt_min': 50, 'rt_max': 100}
+rr.vis_spectrum(q_noise=0.95, selection=selection)
+dd.vis_spectrum(q_noise=0.95, selection=selection)
+
+import time
+
+selection_all={'mz_min':None, 'mz_max':None, 'rt_min': None, 'rt_max': None}
+pp_start  = time.time()
+dd.peak_picking(st_adj=6e2, q_noise=0.95, dbs_par={'eps': 0.02, 'min_samples': 2}, selection=selection, plot=True)
+pp_end = time.time()
+
+print(pp_end - pp_start)
+
+
+fig, ax = dd.vis_features(selection=selection, rt_bound=0.51, mz_bound=0.1)
+ax.scatter(dd.fs.rt_maxI, dd.fs.mz_maxI)
+
+dd.find_isotopes()
+
+len(dd.isotopes)
+gz1=dd.isotopes[3]
+dd.vis_ipattern( gz1, b_mz=4, b_rt=30, rt_bound=0.51, mz_bound=0.2)
+dd.vis_ipattern(gz1, b_mz=10, b_rt=10, rt_bound=0.51, mz_bound=0.2)
 
 # min_samples: min number of core or neighbour samples reachable from a sample in order to be core point, including itself
 # non-core samples are samples that are also density reachable but not have min_samples neighbours
@@ -59,6 +103,16 @@ gz1=out.isotopes[4]
 out.vis_ipattern( gz1, b_mz=4, b_rt=30, rt_bound=0.04, mz_bound=0.2)
 
 
+import sqlite3
+sql_connect = sqlite3.connect('/Users/tk2812/Downloads/MassBank.sql')
+
+cursor = sql_connect.cursor()
+cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+print(cursor. fetchall())
+
+
+
+query = "SELECT * FROM factbook;"
 
 #plt.scatter(out.scanid, out.mz)
 #plt.plot(out.fs.ppm)
@@ -70,7 +124,7 @@ selection={'mz_min':625, 'mz_max':632, 'rt_min':205, 'rt_max':801}
 out.vis_spectrum(q_noise=0.9, selection=selection)
 
 
-
+out=dd
 X=out.Xf
 plt.scatter(X[:,0], X[:,1], c=X[:,2])
 
@@ -94,6 +148,15 @@ print(np.unique(dbs.labels_))
 
 d_mz_a = np.linspace(0.0001, 0.1, 100)
 st_adj_a = np.linspace(1, 2000, 200)
+
+
+import hdbscan as hdb
+cobj = hdb.HDBSCAN(algorithm='best', alpha=1.0, approx_min_span_tree=True,
+    gen_min_span_tree=False, leaf_size=40, memory=Memory(cachedir=None),
+    metric='euclidean', min_cluster_size=5, min_samples=None, p=None)
+
+cobj.fit(X[:,0:2])
+
 
 
 # create the mesh based on these arrays
