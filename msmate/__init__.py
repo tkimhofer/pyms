@@ -1,5 +1,5 @@
 class list_exp:
-    def __init__(self, path, ftype='mzml', print_summary=True):
+    def __init__(self, path, ftype='mzml', nmax=None, print_summary=True):
 
         import subprocess
         import pandas as pd
@@ -8,12 +8,17 @@ class list_exp:
         self.ftype = ftype
         self.path = path
         self.files = []
+        self.nmax=nmax
 
         import glob, os
         self.path=os.path.join(path, '')
 
-        for file in glob.glob(self.path+"*.mzML"):
+        c = 1
+        for file in glob.glob(self.path+"*."+ftype):
             self.files.append(file)
+            if c == nmax: break
+            c += 1
+
 
         # cmd = 'find ' + self.path + ' -type f -iname *' + ftype
         # sp = subprocess.getoutput(cmd)
@@ -78,8 +83,8 @@ class list_exp:
         #
 
 class ExpSet(list_exp):
-    def __init__(self, path, msExp):
-        super().__init__(path, ftype='mzml', print_summary=True)
+    def __init__(self, path,  msExp, ftype='mzml', nmax=None):
+        super().__init__(path, ftype=ftype, print_summary=True, nmax=nmax)
 
     def read(self, pattern=None, multicore=True):
         import os
