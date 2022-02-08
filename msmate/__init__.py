@@ -97,7 +97,7 @@ class ExpSet(list_exp):
             self.df.index = ['s' + str(i) for i in range(self.df.shape[0])]
         else: print('Start importing...')
 
-        if multicore:
+        if multicore & (len(self.files) > 1):
             import multiprocessing
             from joblib import Parallel, delayed
 
@@ -105,10 +105,89 @@ class ExpSet(list_exp):
             print(f'Using {ncore} workers.')
             self.exp = Parallel(n_jobs=ncore)(delayed(msExp)(os.path.join(self.path, i), '1', False) for i in self.files)
         else:
+            # if (len(self.files) > 1):
+            #     print('Importing file')
+            # else:
+            #     print('Importing file')
             self.exp = []
             for f in self.files:
                 fpath=os.path.join(self.path, f)
                 self.exp.append(msExp(fpath, '1', False))
+
+
+    def get_bpc(self, plot):
+        import numpy as np
+        from scipy.interpolate import interp1d
+
+        st = []
+        st_delta = []
+        I = []
+        st_inter = []
+        for exp in self.exp:
+            df_l1 = exp.df.loc[exp.df.ms_level == '1']
+            exp_st = df_l1.scan_start_time
+            exp_I = df_l1.base_peak_intensity.astype(float)
+            I.append(exp_I)
+            st_delta.append(np.median(np.diff(exp_st)))
+            st.append(df_l1.scan_start_time)
+            st_inter.append(interp1d(exp_st, exp_I, bounds_error=False, fill_value=0))
+
+        tmin = np.concatenate(st).min()
+        tmax = np.concatenate(st).max()
+        x_new = np.arange(tmin, tmax, np.mean(st_delta))
+
+        # interpolate to common x points
+        self.bpc= np.zeros((len(self.exp), len(x_new)))
+        self.bpc_st = x_new
+        for i in range(len(st_inter)):
+            self.bpc[i] = st_inter[i](x_new)
+
+        if plot:
+            import matplotlib.pyplot as plt
+            fig = plt.figure()
+            ax = plt.subplot(111)
+            ax.plot(x_new, self.bpc.T, linewidth=0.8)
+            #ax.legend(self.df.index.values)
+
+            fig.canvas.draw()
+            offset = ax.yaxis.get_major_formatter().get_offset()
+
+            ax.set_xlabel(r"$\bfs$")
+            ax.set_ylabel(r"$\bfSum Max Count$")
+            ax2 = ax.twiny()
+
+            ax.yaxis.offsetText.set_visible(False)
+            # ax1.yaxis.set_label_text("original label" + " " + offset)
+            if offset != '': ax.yaxis.set_label_text(r"$\bfInt/count$ ($x 10^" + offset.replace('1e', '') + '$)')
+
+            def tick_conv(X):
+                V = X / 60
+                return ["%.2f" % z for z in V]
+
+            tick_loc = np.arange(np.round(tmin / 60), np.round(tmax / 60), 2, dtype=float) * 60
+            ax2.set_xlim(ax.get_xlim())
+            ax2.set_xticks(tick_loc)
+            ax2.set_xticklabels(tick_conv(tick_loc))
+            ax2.set_xlabel(r"$\bfmin$")
+            # ax2.yaxis.set_label_text(r"$Int/count$ " + offset)
+
+            ax.legend(self.df.index.values, loc='best', bbox_to_anchor=(0.5, 0.5, 0.5, 0.5))
+
+    # def rt_ali(self, method='warping', parallel=True):
+    #     import sys
+    #     if ((sys.version_info.major > 3) | (sys.version_info.major == 3 $ sys.version_info.minor <8)):
+    #         raise ValueError('Update Python to 3.9 or higher.')
+    #
+    #
+    #     if not hasattr(self, 'bpc'):
+    #         self.get_bpc(plot=False)
+    #
+    #     from fdasrsf import time_warping, fdawarp
+    #
+    #     w_obj = time_warping.fdawarp(self.bpc.T, self.bpc_st)
+    #     w_obj.srsf_align(parallel=parallel)
+    #
+    #     # get warping functions
 
 
 
@@ -116,7 +195,7 @@ class ExpSet(list_exp):
 
 class msExp:
     # import methods
-    from ._peak_picking import est_intensities, cl_summary, feat_summary, peak_picking
+    from ._peak_picking import est_intensities, cl_summary, feat_summary, peak_picking, vis_feature_pp
     from ._reading import read_mzml, read_bin, exp_meta, node_attr_recurse, rec_attrib, extract_mass_spectrum_lev1
 
     def __init__(self, fpath, mslev='1', print_summary=False):
@@ -175,8 +254,8 @@ class msExp:
         return (stime, xic)
 
 
-
-    def window_mz_rt(self, Xr, selection={'mz_min': None, 'mz_max': None, 'rt_min': None, 'rt_max': None},
+    @staticmethod
+    def window_mz_rt(Xr, selection={'mz_min': None, 'mz_max': None, 'rt_min': None, 'rt_max': None},
                      allow_none=False, return_idc=False):
         # make selection on Xr based on rt and mz range
         # allow_none: true if None alowed in selection (then full range is used)
@@ -214,7 +293,7 @@ class msExp:
             t3 = Xr[..., 3] > selection['rt_min']
             t4 = Xr[..., 3] < selection['rt_max']
 
-        idx = np.where((t1) & (t2) & (t3) & (t4))[0]
+        idx = np.where(t1 & t2 & t3 & t4)[0]
 
         if return_idc:
             return idx
@@ -475,6 +554,9 @@ class msExp:
         if isinstance(tmax, type(None)):
             tmax = df_l1.scan_start_time.max()
 
+        # if isinstance(ax, type(None)):
+        #
+        # else: ax1=ax
         fig = plt.figure()
         ax1 = fig.add_subplot(111)
 
