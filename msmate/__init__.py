@@ -1,7 +1,6 @@
 class list_exp:
     def __init__(self, path, ftype='mzml', nmax=None, print_summary=True):
 
-        import subprocess
         import pandas as pd
         import numpy as np
 
@@ -83,6 +82,8 @@ class list_exp:
         #
 
 class ExpSet(list_exp):
+    from ._btree import bst_search, spec_distance
+
     def __init__(self, path,  msExp, ftype='mzml', nmax=None):
         super().__init__(path, ftype=ftype, print_summary=True, nmax=nmax)
 
@@ -113,7 +114,6 @@ class ExpSet(list_exp):
             for f in self.files:
                 fpath=os.path.join(self.path, f)
                 self.exp.append(msExp(fpath, '1', False))
-
 
     def get_bpc(self, plot):
         import numpy as np
@@ -173,19 +173,204 @@ class ExpSet(list_exp):
 
             ax.legend(self.df.index.values, loc='best', bbox_to_anchor=(0.5, 0.5, 0.5, 0.5))
 
+    def get_tic(self, plot):
+        import numpy as np
+        from scipy.interpolate import interp1d
+
+        st = []
+        st_delta = []
+        I = []
+        st_inter = []
+        for exp in self.exp:
+            df_l1 = exp.df.loc[exp.df.ms_level == '1']
+            exp_st = df_l1.scan_start_time
+            exp_I = df_l1.total_ion_current.astype(float)
+            I.append(exp_I)
+            st_delta.append(np.median(np.diff(exp_st)))
+            st.append(df_l1.scan_start_time)
+            st_inter.append(interp1d(exp_st, exp_I, bounds_error=False, fill_value=0))
+
+        tmin = np.concatenate(st).min()
+        tmax = np.concatenate(st).max()
+        x_new = np.arange(tmin, tmax, np.mean(st_delta))
+
+        # interpolate to common x points
+        self.tic= np.zeros((len(self.exp), len(x_new)))
+        self.tic_st = x_new
+        for i in range(len(st_inter)):
+            self.tic[i] = st_inter[i](x_new)
+
+        if plot:
+            import matplotlib.pyplot as plt
+            fig = plt.figure()
+            ax = plt.subplot(111)
+            ax.plot(x_new, self.tic.T, linewidth=0.8)
+            #ax.legend(self.df.index.values)
+
+            fig.canvas.draw()
+            offset = ax.yaxis.get_major_formatter().get_offset()
+
+            ax.set_xlabel(r"$\bfs$")
+            #ax.set_ylabel(r"$\bfTotal Count$")
+            ax2 = ax.twiny()
+
+            ax.yaxis.offsetText.set_visible(False)
+            # ax1.yaxis.set_label_text("original label" + " " + offset)
+            if offset != '': ax.yaxis.set_label_text(r"$\bfTotal$ $\bfInt/count$ ($x 10^" + offset.replace('1e', '') + '$)')
+
+            def tick_conv(X):
+                V = X / 60
+                return ["%.2f" % z for z in V]
+
+            tick_loc = np.arange(np.round(tmin / 60), np.round(tmax / 60), 2, dtype=float) * 60
+            ax2.set_xlim(ax.get_xlim())
+            ax2.set_xticks(tick_loc)
+            ax2.set_xticklabels(tick_conv(tick_loc))
+            ax2.set_xlabel(r"$\bfmin$")
+            # ax2.yaxis.set_label_text(r"$Int/count$ " + offset)
+
+            ax.legend(self.df.index.values, loc='best', bbox_to_anchor=(0.5, 0.5, 0.5, 0.5))
+
+    def chrom_btree(self, ctype='bpc', index=0, depth=4, minle=100, linkage='ward', xlab='Scantime (s)', ylab='Total Count', ax=None, colour='green'):
+        if ctype == 'bpc':
+            if not hasattr(self, ctype):
+                self.get_bpc(plot=False)
+            mm = self.bpc[index]
+            mx = self.bpc_st
+        elif ctype == 'tic':
+            if not hasattr(self, ctype):
+                self.get_tic(plot=False)
+            mm = self.tic[index]
+            mx = self.tic_st
+
+        self.btree = self.bst_search(mx, mm,depth, minle)
+        return self.btree.vis_graph(xlab=xlab, ylab=ylab, ax=ax, col=colour)
+
+    def chrom_dist(self, ctype='bpc', depth=4, minle=3, linkage='ward', **kwargs):
+
+
+        if ctype == 'bpc':
+            if not hasattr(self, ctype):
+                self.get_bpc(plot=False)
+            mm = self.bpc
+            mx = self.bpc_st
+        elif ctype == 'tic':
+            if not hasattr(self, ctype):
+                self.get_tic(plot=False)
+            mm = self.tic
+            mx = self.tic_st
+
+        self.spec_distance(mm, mx, depth, minle, linkage, **kwargs)
+
+    def pick_peaks(self, st_adj=6e2, q_noise=0.89, dbs_par={'eps': 0.02, 'min_samples': 2},
+                 selection={'mz_min': None, 'mz_max': None, 'rt_min': None, 'rt_max': None}, multicore=True):
+        import numpy as np
+        print('Start peak picking...')
+
+        def pp(ex, st_adj, q_noise, dbs_par, selection):
+            try:
+                ex.peak_picking(st_adj, q_noise, dbs_par, selection, False)
+                return ex
+            except Exception as e:
+                return ex
+
+        self.pp_selection = selection
+
+        if multicore & (len(self.exp) > 1):
+            import multiprocessing
+            from joblib import Parallel, delayed
+            import numpy as np
+
+            ncore = np.min([multiprocessing.cpu_count() - 2, len(self.files)])
+            print(f'Using {ncore} workers.')
+            self.exp = Parallel(n_jobs=ncore)(delayed(pp)(i, st_adj, q_noise, dbs_par, selection) for i in self.exp)
+        else:
+            for i in range(len(self.exp)):
+                ex=self.exp[i]
+                print(ex.fpath)
+                self.exp[i]=pp(ex, st_adj, q_noise, dbs_par, selection)
+
+    def vis_peakGroups(self):
+        import matplotlib.pyplot as plt
+
+        prop_cycle = plt.rcParams['axes.prop_cycle']
+        colors = prop_cycle.by_key()['color']
+
+        c = 0
+        d = len(colors)-1
+        for e in range(len(self.exp)):
+            ex = self.exp[e]
+            if hasattr(ex, 'feat_l2'):
+                print(e)
+                fl2 = ex.feat_l2
+                rt=[]
+                mz=[]
+                for i in fl2:
+                    rt.append(ex.feat[i]['rt_maxI'])
+                    mz.append(ex.feat[i]['mz_maxI'])
+                plt.scatter(rt, mz, facecolors='none', edgecolors=colors[c], label=self.df.index[c])
+
+                if c == d:
+                    c=0
+                else:
+                    c=c+1
+        plt.legend()
+        plt.xlabel('Scan time (s)')
+        plt.ylabel('m/z')
+
+
+
+
+
+
     # def rt_ali(self, method='warping', parallel=True):
-    #     import sys
-    #     if ((sys.version_info.major > 3) | (sys.version_info.major == 3 $ sys.version_info.minor <8)):
-    #         raise ValueError('Update Python to 3.9 or higher.')
-    #
+    #     # import sys
+    #     # if ((sys.version_info.major > 3) | (sys.version_info.major == 3 $ sys.version_info.minor <8)):
+    #     #     raise ValueError('Update Python to 3.9 or higher.')
+    #     #
     #
     #     if not hasattr(self, 'bpc'):
     #         self.get_bpc(plot=False)
     #
-    #     from fdasrsf import time_warping, fdawarp
+    #     from fastdtw import fastdtw
+    #     from scipy.spatial.distance import euclidean
+    #     import numpy as np
+    #     import matplotlib.pyplot as plt
     #
-    #     w_obj = time_warping.fdawarp(self.bpc.T, self.bpc_st)
-    #     w_obj.srsf_align(parallel=parallel)
+    #     self.bpc.shape
+    #     self.bpc_st.shape
+    #
+    #     x =  self.bpc[0]
+    #     y = np.mean(self.bpc, 0)
+    #     distance, path = fastdtw(x, y, dist=euclidean)
+    #     len(path)
+    #     np.arange(0, len(x))
+    #
+    #     x_new = []
+    #     y_new = []
+    #     ix_last=-1
+    #     iy_last=-1
+    #     for i in range(len(path)):
+    #         x_new.append(x[path[i][0]])
+    #         y_new.append(y[path[i][0]])
+    #
+    #     plt.plot(x_new)
+    #     plt.plot(y_new)
+    #
+    #     plt.plot(x)
+    #     plt.plot(y)
+    #
+    #
+    #         if i > 0 :
+    #             ix_last = path[i-1][0]
+    #             iy_last = path[i - 1][1]
+    #
+    #         if path[i][0] == ix_last: x_new.append(x[path[i][0]]
+    #         else: x_new.append(path[i][0])
+    #
+    #         if path[i][1] == iy_last: continue
+    #         else: y_new.append(path[i][1])
+    #
     #
     #     # get warping functions
 
@@ -208,6 +393,7 @@ class msExp:
 
     def read_exp(self, mslevel='1', print_summary=True):
         import numpy as np
+
         #if fidx > (len(self.files)-1): print('Index too high (max value is ' + str(self.nfiles-1) + ').')
         self.flag=str(mslevel)
 
@@ -355,7 +541,6 @@ class msExp:
         import matplotlib.pyplot as plt
         from matplotlib.patches import Rectangle
         import numpy as np
-        import pandas as pd
 
         # which feature - define plot axis boundaries
         Xsub = self.window_mz_rt(self.Xf, selection, allow_none=False, return_idc=False)

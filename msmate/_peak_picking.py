@@ -120,7 +120,7 @@ def cl_summary(self, cl_id=7):
     _, icent = wImean(xsm, ybcor)
     # if weighted mean is at borders, then peak is not fully captured, these clusters are excluded here
     if (icent < 5) or (icent > len(idxsm)-5):
-        return self.feat.update({'id:'+str(x) : {'flev': 1, \
+        return {'flev': 1, \
                 'crit': 'peak not centered (wImean)',
               'mz_maxI': np.round(mz_maxI, 4), \
               'rt_maxI': np.round(rt_maxI, 1), \
@@ -130,7 +130,7 @@ def cl_summary(self, cl_id=7):
               'ppm': np.round(ppm), 'mz_min': np.round(mz_min, 4), 'mz_mean': np.round(mz_mean, 4),
               'mz_max': np.round(mz_max, 4), \
               'rt_min': np.round(rt_min, 1), 'rt_mean': np.round(rt_mean, 1),
-              'rt_max': np.round(rt_max, 1)}})
+              'rt_max': np.round(rt_max, 1)}
 
 
 
@@ -236,7 +236,6 @@ def feat_summary(self, st_len_min=10, plot=True, mz_bound=0, rt_bound=0):
     # start = time.time()
     # cc=0
     for i in cl_n_above:
-        print(i)
         f1 = self.cl_summary(i)
         ufid = 'id:' + str(i)
         self.feat.update({ufid: f1})
@@ -379,8 +378,8 @@ def vis_feature_pp(self, selection={'mz_min': 425, 'mz_max': 440, 'rt_min': 400,
                 'id': i,
                 'x_min': f1['rt_min'] - 1,
             'x_max' : f1['rt_max'] + 1,
-            'y_min' : f1['mz_min'] - 0.3,
-            'y_max' : f1['mz_max'] + 0.3})
+            'y_min' : f1['mz_min'] - 0.053,
+            'y_max' : f1['mz_max'] + 0.053})
 
             axs[1].add_patch(Rectangle(((f1['rt_min'] - rt_bound), f1['mz_min'] - mz_bound), \
                                    ((f1['rt_max']) - (f1['rt_min'])) + rt_bound * 2, \
@@ -391,15 +390,8 @@ def vis_feature_pp(self, selection={'mz_min': 425, 'mz_max': 440, 'rt_min': 400,
         coords = pd.DataFrame(coords)
 
         def onclick(event):
-            print(event.xdata)
-            print(event.xdata.dtype)
-
             idx=np.where((event.xdata >= coords.x_min.values) & (event.xdata <= coords.x_max.values) & (event.ydata <= coords.y_max.values) & (event.ydata >= coords.x_min.values))[0]
-            print(idx.__class__)
-            print(idx)
-            print(idx.dtype)
             idx=list(idx)
-            print(idx)
             if len(idx) > 0:
                 if len(idx) > 1:
                     iid = np.argmin(np.abs(event.ydata - coords.y_max.iloc[idx].values))
