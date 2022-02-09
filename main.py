@@ -121,4 +121,5 @@ dataSet.vis_peakGroups()
 ##########
 # peak grouping /filtering -> what setup is useful to ST/Annie?
 # PCA/O-PLS modelling
+# mslevel2 and db annot for met id-ing
 ##########
