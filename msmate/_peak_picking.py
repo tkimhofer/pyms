@@ -347,6 +347,8 @@ def vis_feature_pp(self, selection={'mz_min': 425, 'mz_max': 440, 'rt_min': 400,
                 ax.set_title(
                     id + f',  s/n: ' + str(int(fdict['sino'])) + ', prom:' + str(fdict['pprom']) + ', np:' + str(fdict['np']))
                 ax.legend()
+            ax.set_ylabel(r"$\bfCount$")
+            ax.set_xlabel(r"$\bfScan time$, s")
 
             return ax
 
@@ -357,7 +359,8 @@ def vis_feature_pp(self, selection={'mz_min': 425, 'mz_max': 440, 'rt_min': 400,
 
         cm = plt.cm.get_cmap('gist_ncar')
         fig, axs = plt.subplots(2,1,gridspec_kw={'height_ratios': [1, 2]}, figsize=(8,10))
-        axs[0].set_xlabel('st [s]', fontsize=14)
+        axs[0].set_ylabel(r"$\bfCount$")
+        axs[0].set_xlabel(r"$\bfScan time$, s")
 
         vis_feature(self.feat[self.feat_l2[0]], id=self.feat_l2[0], ax=axs[0])
 
@@ -406,25 +409,25 @@ def vis_feature_pp(self, selection={'mz_min': 425, 'mz_max': 440, 'rt_min': 400,
         cid = fig.canvas.mpl_connect('button_press_event', onclick)
 
         axs[1].set_xlabel(r"$\bfScan time$, s")
-        ax2 = axs[1].twiny()
+       # ax2 = axs[1].twiny()
 
         axs[1].yaxis.offsetText.set_visible(False)
         # ax1.yaxis.set_label_text("original label" + " " + offset)
         axs[1].yaxis.set_label_text(r"$\bfm/z$")
 
-        def tick_conv(X):
-            V = X / 60
-            return ["%.2f" % z for z in V]
+        # def tick_conv(X):
+        #     V = X / 60
+        #     return ["%.2f" % z for z in V]
 
-        tmax = np.max(Xsub[:, 3])
-        tmin = np.min(Xsub[:, 3])
-
-        tick_loc = np.linspace(tmin / 60, tmax / 60, 5) * 60
-        # tick_loc = np.arange(np.round((tmax - tmin) / 60, 0), 0.1)*60
-        ax2.set_xlim(axs[1].get_xlim())
-        ax2.set_xticks(tick_loc)
-        ax2.set_xticklabels(tick_conv(tick_loc))
-        ax2.set_xlabel(r"min")
+        # tmax = np.max(Xsub[:, 3])
+        # tmin = np.min(Xsub[:, 3])
+        #
+        # tick_loc = np.linspace(tmin / 60, tmax / 60, 5) * 60
+        # # tick_loc = np.arange(np.round((tmax - tmin) / 60, 0), 0.1)*60
+        # ax2.set_xlim(axs[1].get_xlim())
+        # ax2.set_xticks(tick_loc)
+        # ax2.set_xticklabels(tick_conv(tick_loc))
+        # ax2.set_xlabel(r"min")
         #fig.colorbar(im, ax=ax)
 
 
