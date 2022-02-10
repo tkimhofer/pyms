@@ -331,7 +331,7 @@ def vis_feature_pp(self, selection={'mz_min': 425, 'mz_max': 440, 'rt_min': 400,
         import numpy as np
         import pandas as pd
 
-        def vis_feature(fdict, ax=None, add=False):
+        def vis_feature(fdict, id, ax=None, add=False):
             import matplotlib.pyplot as plt
 
             # idx = np.where(self.Xf[:, 6] == fdict['id'])[0]
@@ -345,7 +345,7 @@ def vis_feature_pp(self, selection={'mz_min': 425, 'mz_max': 440, 'rt_min': 400,
             ax.plot(fdict['st_sm'], fdict['y_sm_bline'], label='smoothed bl-cor', color='orange')
             if not add:
                 ax.set_title(
-                    f's/n: ' + str(int(fdict['sino'])) + ', prom:' + str(fdict['pprom']) + ', np:' + str(fdict['np']))
+                    id + f',  s/n: ' + str(int(fdict['sino'])) + ', prom:' + str(fdict['pprom']) + ', np:' + str(fdict['np']))
                 ax.legend()
 
             return ax
@@ -356,12 +356,10 @@ def vis_feature_pp(self, selection={'mz_min': 425, 'mz_max': 440, 'rt_min': 400,
         Xsub = self.window_mz_rt(self.Xf, selection, allow_none=False, return_idc=False)
 
         cm = plt.cm.get_cmap('gist_ncar')
-
-
         fig, axs = plt.subplots(2,1,gridspec_kw={'height_ratios': [1, 2]}, figsize=(8,10))
         axs[0].set_xlabel('st [s]', fontsize=14)
 
-        vis_feature(self.feat[self.feat_l2[0]], ax=axs[0])
+        vis_feature(self.feat[self.feat_l2[0]], id=self.feat_l2[0], ax=axs[0])
 
         axs[1].set_facecolor('#EBFFFF')
         axs[1].text(1.27, 0, self.df.fname[0], rotation=90, fontsize=6, transform=axs[1].transAxes)
@@ -374,24 +372,23 @@ def vis_feature_pp(self, selection={'mz_min': 425, 'mz_max': 440, 'rt_min': 400,
             f1 = self.feat[i]
 
             # create rectangle coordinates for callbacks
-            coords.append({
-                'id': i,
-                'x_min': f1['rt_min'] - 1,
-            'x_max' : f1['rt_max'] + 1,
-            'y_min' : f1['mz_min'] - 0.053,
+            coords.append({'id': i, 'x_min': f1['rt_min'] - 1, 'x_max' : f1['rt_max'] + 1, 'y_min' : f1['mz_min'] - 0.053,
             'y_max' : f1['mz_max'] + 0.053})
 
             axs[1].add_patch(Rectangle(((f1['rt_min'] - rt_bound), f1['mz_min'] - mz_bound), \
                                    ((f1['rt_max']) - (f1['rt_min'])) + rt_bound * 2, \
                                    (f1['mz_max'] - f1['mz_min']) + mz_bound * 2, fc='#C2D0D6', \
                                    linestyle="solid", color='red', linewidth=2, zorder=0))
+            axs[1].text(f1['rt_max'], f1['mz_max'], i.split(':')[1], bbox=dict(facecolor='red', alpha=0.3, boxstyle= 'circle', edgecolor='white'))
             im = axs[1].scatter(Xsub[Xsub[:,6] == fid, 3], Xsub[Xsub[:,6] == fid, 1], c=np.log(Xsub[Xsub[:,6] == fid, 2]), s=5, cmap=cm)
+
 
         coords = pd.DataFrame(coords)
 
         def onclick(event):
-            idx=np.where((event.xdata >= coords.x_min.values) & (event.xdata <= coords.x_max.values) & (event.ydata <= coords.y_max.values) & (event.ydata >= coords.x_min.values))[0]
+            idx=np.where((event.xdata >= coords.x_min.values) & (event.xdata <= coords.x_max.values) & (event.ydata <= coords.y_max.values) & (event.ydata >= coords.y_min.values))[0]
             idx=list(idx)
+            # print(idx)
             if len(idx) > 0:
                 if len(idx) > 1:
                     iid = np.argmin(np.abs(event.ydata - coords.y_max.iloc[idx].values))
@@ -402,10 +399,32 @@ def vis_feature_pp(self, selection={'mz_min': 425, 'mz_max': 440, 'rt_min': 400,
                     add = False
                 else:
                     add = True
-                vis_feature(self.feat[coords.id.iloc[idx]], ax=axs[0], add=add)
+                vis_feature(self.feat[coords.id.iloc[idx]], id=self.feat_l2[idx], ax=axs[0], add=add)
 
         fig.colorbar(im, ax=axs[1], shrink=0.5)
         #fig.colorbar(pcm, ax=axs[0, :2], shrink=0.6, location='bottom')
         cid = fig.canvas.mpl_connect('button_press_event', onclick)
+
+        axs[1].set_xlabel(r"$\bfScan time$, s")
+        ax2 = axs[1].twiny()
+
+        axs[1].yaxis.offsetText.set_visible(False)
+        # ax1.yaxis.set_label_text("original label" + " " + offset)
+        axs[1].yaxis.set_label_text(r"$\bfm/z$")
+
+        def tick_conv(X):
+            V = X / 60
+            return ["%.2f" % z for z in V]
+
+        tmax = np.max(Xsub[:, 3])
+        tmin = np.min(Xsub[:, 3])
+
+        tick_loc = np.linspace(tmin / 60, tmax / 60, 5) * 60
+        # tick_loc = np.arange(np.round((tmax - tmin) / 60, 0), 0.1)*60
+        ax2.set_xlim(axs[1].get_xlim())
+        ax2.set_xticks(tick_loc)
+        ax2.set_xticklabels(tick_conv(tick_loc))
+        ax2.set_xlabel(r"min")
+        #fig.colorbar(im, ax=ax)
 
 

@@ -14,7 +14,7 @@ path='/Volumes/Backup Plus/Cambridge_RP_POS'
 ##############
 
 # instantiate MS experiment object (detects all mzml files in specified directory)
-dataSet=ms.ExpSet(path, msExp=ms.msExp, ftype='mzML', nmax=2)
+dataSet=ms.ExpSet(path, msExp=ms.msExp, ftype='mzML', nmax=20)
 
 # you can use a prepared dataSet object for this tutorial (20 RPNEG spectra)
 # import pickle
@@ -34,7 +34,8 @@ dataSet=ms.ExpSet(path, msExp=ms.msExp, ftype='mzML', nmax=2)
 
 # option 2: read-in all experiments
 dataSet.read()
-
+import pickle
+pickle.dump(dataSet, open( path+"/first20_msm8_msmate.p", "wb" ) )
 
 ##############
 # visualise chromatograms ...
@@ -60,8 +61,8 @@ dataSet.get_tic(plot=True)
 dataSet.chrom_dist(ctype='bpc', minle=3)
 
 # visualise distance tree for individual chromatograms
-ax = dataSet.chrom_btree('bpc', index=1)
-ax1 = dataSet.chrom_btree('bpc', index=19, ax=ax, colour='red')
+ax = dataSet.chrom_btree('bpc', index=2)
+ax1 = dataSet.chrom_btree('bpc', index=10, ax=ax, colour='red')
 ax2 = dataSet.chrom_btree('bpc', index=17, ax=ax1, colour='blue')
 
 
@@ -72,7 +73,7 @@ ax2 = dataSet.chrom_btree('bpc', index=17, ax=ax1, colour='blue')
 
 # peak picking parameter optimisation
 # select ppm window where there are clear signals - can be identified with TIC
-dataSet.exp[19].plt_chromatogram(ctype=['tic'])
+dataSet.exp[13].plt_chromatogram(ctype=['tic'])
 
 # plot selection of ms level 1 data (using rt and mz window)
 # q_noise: quantile probability of noise intensity (typically 0.95 works well)
@@ -91,6 +92,8 @@ dataSet.exp[19].vis_spectrum(q_noise=0.85, selection=selection)
 # clustering paramaters - experiment 1
 dataSet.exp[19].peak_picking(st_adj=6e2, q_noise=0.75, dbs_par={'eps': 0.0071, 'min_samples': 5}, selection=selection, plot=True)
 dataSet.exp[19].vis_feature_pp(selection=selection, rt_bound=1, mz_bound=0.01)
+
+self=dataSet.exp[19]
 
 # clustering paramaters - experiment 1, different location
 
