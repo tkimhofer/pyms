@@ -6,15 +6,14 @@ import msmate as ms
 
 ## directory of mzml files
 path='/path/to/mzmlfiles/'
-path='/Users/tk2812/py/msfiles/testing'
-path='/Volumes/Backup Plus/Cambridge_RP_POS'
+# path='/Volumes/Backup Plus/Cambridge_RP_POS'
 
 ##############
 # detect mzml files
 ##############
 
 # instantiate MS experiment object (detects all mzml files in specified directory)
-dataSet=ms.ExpSet(path, msExp=ms.msExp, ftype='mzML', nmax=1)
+dataSet=ms.ExpSet(path, msExp=ms.msExp, ftype='mzML', nmax=3)
 
 # you can use a prepared dataSet object for this tutorial (20 RPNEG spectra)
 # import pickle
@@ -34,10 +33,6 @@ dataSet=ms.ExpSet(path, msExp=ms.msExp, ftype='mzML', nmax=1)
 
 # option 2: read-in all experiments
 dataSet.read()
-import pickle
-pickle.dump(dataSet, open( path+"/first20_msm8_msmate.p", "wb" ) )
-pickle.dump(dataSet, open( path+"/first10_ppicked_msm8_msmate.p", "wb" ) )
-dataSet = pickle.load(open( path+"/first10_ppicked_msm8_msmate.p", "rb" ) )
 
 ##############
 # visualise chromatograms ...
@@ -47,11 +42,6 @@ dataSet = pickle.load(open( path+"/first10_ppicked_msm8_msmate.p", "rb" ) )
 dataSet.exp[0].plt_chromatogram(ctype=['tic', 'bpc'])
 dataSet.exp[1].plt_chromatogram(ctype=['tic', 'bpc'])
 dataSet.exp[19].plt_chromatogram(ctype=['tic', 'bpc'])
-
-
-dataSet.exp[0].plt_chromatogram(ctype=['xic'], xic_mz=180, xic_ppm=50)
-
-
 
 # ... for all experiments - check for significant retention time shifts
 dataSet.get_bpc(plot=True)
@@ -68,9 +58,9 @@ dataSet.get_tic(plot=True)
 dataSet.chrom_dist(ctype='bpc', minle=3)
 
 # visualise distance tree for individual chromatograms
-ax = dataSet.chrom_btree('bpc', index=2)
-ax1 = dataSet.chrom_btree('bpc', index=10, ax=ax, colour='red')
-ax2 = dataSet.chrom_btree('bpc', index=17, ax=ax1, colour='blue')
+ax = dataSet.chrom_btree('bpc', index=0)
+ax1 = dataSet.chrom_btree('bpc', index=1, ax=ax, colour='red')
+ax2 = dataSet.chrom_btree('bpc', index=2, ax=ax1, colour='blue')
 
 
 
@@ -86,7 +76,7 @@ dataSet.exp[0].plt_chromatogram(ctype=['tic'])
 # q_noise: quantile probability of noise intensity (typically 0.95 works well)
 selection={'mz_min':60, 'mz_max':400, 'rt_min':300, 'rt_max': 400}
 dataSet.exp[0].vis_spectrum(q_noise=0.89, selection={'mz_min':120, 'mz_max':140, 'rt_min':355, 'rt_max': 395})
-dataSet.exp[0].find_isotopes()
+
 
 # peak picking using a density based clustering algorithm
 # peak picking parameter description:
@@ -100,10 +90,9 @@ dataSet.exp[0].find_isotopes()
 # clustering paramaters - experiment 1
 dataSet.exp[0].peak_picking(st_adj=6e2, q_noise=0.75, dbs_par={'eps': 0.0041, 'min_samples': 5}, selection=selection,
                             qc_par = {'st_len_min': 7, 'raggedness': 0.15, 'non_neg': 0.8, 'sId_gap': 0.15, 'sino': 30, 'ppm': 15})
-dataSet.exp[0].vis_feature_pp(selection=selection,
-                            lev =3)
+dataSet.exp[0].vis_feature_pp(selection=selection,  lev =3)
 
-el=element_list()
+el=ms.element_list()
 calc_mzIsotopes(formula='C3O3H6', el=el)
 # for a given molecular species, predict mz & isotopic pattern and search in peak list
 

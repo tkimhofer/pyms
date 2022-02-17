@@ -145,6 +145,7 @@ class calc_mzIsotopes:
         le_om = self.isotopesAbundance.shape[0]-self.isotopesAbundance_reduced.shape[0]
         if le_om > 0:
             print(f'{le_om} entries omitted where p < {1e-7}')
+
 # isotopes(formula, el)
 # plt.scatter(mplus, average_mass)
 

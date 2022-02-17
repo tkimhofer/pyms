@@ -318,13 +318,13 @@ def feat_summary1(self):
 
     self.feat.update({'id:' + str(x): {'flev': 1, 'crit': 'n < st_len_min'} for x in self.cl_labels[0][~min_le_bool]})
     t2 = time.time()
-    print('boiler')
-    print(t2-t1)
+    # print('boiler')
+    # print(t2-t1)
 
     c = 0
     for fid in cl_n_above:
-        print(fid)
-        print(f'{c}: {fid}')
+        # print(fid)
+        # print(f'{c}: {fid}')
         c +=1
         f1 = self.cl_summary(fid)
         #plt.plot(f1['fdata']['st'], f1['fdata']['I_raw'])
@@ -336,8 +336,8 @@ def feat_summary1(self):
             self.feat_l3.append(ufid)
     t3 = time.time()
 
-    print('run time per feature')
-    print((t3-t2)/len(cl_n_above))
+    # print(f'run time per feature')
+    # print((t3-t2)/len(cl_n_above))
 
     qq = [self.feat[x]['qc'][0] if isinstance(self.feat[x]['qc'], type(())) else self.feat[x]['qc'] for x in self.feat_l2 ]
     # import pandas as pd
@@ -391,33 +391,33 @@ def peak_picking(self, st_adj=6e2, q_noise=0.89, dbs_par={'eps': 0.02, 'min_samp
     # Xf has 6 columns: scanId, mz, int, st, noiseBool, st_adj
     print(f'Clustering, number of dp: {self.Xf.shape[0]}')
     s1 = time.time()
-    print(s1-start)
+    # print(s1-start)
     #plt.scatter(X2[:,0], X2[:,1])
     #oo= self.vis_spectrum(q_noise=self.q_noise, selection=selection)
     #return(X2)
     # perform clustering
-    print('start cl')
+    # print('start cl')
     dbs = DBSCAN(eps=self.dbs_par['eps'], min_samples=self.dbs_par['min_samples'], algorithm='auto').fit(self.Xf[idx_signal, :][..., np.array([1, 5])])
     #self.cl_membership = dbs.labels_
-    print('cl done')
+    # print('cl done')
     s2=time.time()
-    print(s2-s1)
+    # print(s2-s1)
 
     # append cluster membership to windowed Xraw
     self.cl_labels = np.unique(dbs.labels_, return_counts=True)
-    print('cl unique done')
+    # print('cl unique done')
 
     cl_mem = np.ones(self.Xf.shape[0]) * -1
     cl_mem[idx_signal] = dbs.labels_
     self.Xf = np.c_[self.Xf, cl_mem]    # Xf has 7 columns: scanId, mz, int, st, noiseBool, st_adj, clMem
-    print('cl append done')
+    # print('cl append done')
     s3=time.time()
-    print(s3-s2)
+    # print(s3-s2)
 
     # qc filtering
     # self.feat_summary(st_len_min=10, plot=plot, mz_bound=0, rt_bound=0)  # self.feat: list
     s4 = time.time()
-    print('feat filter')
+    # print('feat filter')
     self.feat_summary1()
     s5 = time.time()
 
@@ -565,17 +565,17 @@ def vis_feature_pp(self, selection={'mz_min': 425, 'mz_max': 440, 'rt_min': 400,
         plt.colorbar(im, cax=cbaxes, ticks=[0., 1], orientation='horizontal')
 
         def p_text(event):
-            print(event.artist)
+            # print(event.artist)
             ids = str(event.artist.get_text())
             if event.mouseevent.button is MouseButton.LEFT:
-                print('left click')
-                print('id:' + str(ids))
+                # print('left click')
+                # print('id:' + str(ids))
                 axs[0].clear()
                 axs[0].set_title('')
                 vis_feature(self.feat['id:' + ids], id=ids, ax=axs[0], add=False)
             if event.mouseevent.button is MouseButton.RIGHT:
-                print('right click')
-                print('id:' + str(ids))
+                # print('right click')
+                # print('id:' + str(ids))
                 vis_feature(self.feat['id:' + ids], id=ids, ax=axs[0], add=True)
 
         cid1 = fig.canvas.mpl_connect('pick_event', p_text)
