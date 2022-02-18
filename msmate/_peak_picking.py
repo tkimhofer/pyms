@@ -573,10 +573,12 @@ def vis_feature_pp(self, selection={'mz_min': 425, 'mz_max': 440, 'rt_min': 400,
                 axs[0].clear()
                 axs[0].set_title('')
                 vis_feature(self.feat['id:' + ids], id=ids, ax=axs[0], add=False)
+                event.canvas.draw()
             if event.mouseevent.button is MouseButton.RIGHT:
                 # print('right click')
                 # print('id:' + str(ids))
                 vis_feature(self.feat['id:' + ids], id=ids, ax=axs[0], add=True)
+                event.canvas.draw()
 
         cid1 = fig.canvas.mpl_connect('pick_event', p_text)
         axs[1].set_xlabel(r"$\bfScan time$, s")

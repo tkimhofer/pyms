@@ -7,6 +7,7 @@ import msmate as ms
 ## directory of mzml files
 path='/path/to/mzmlfiles/'
 # path='/Volumes/Backup Plus/Cambridge_RP_POS'
+path='/Users/TKimhofer/Downloads/converted/'
 
 ##############
 # detect mzml files
@@ -14,7 +15,7 @@ path='/path/to/mzmlfiles/'
 
 # instantiate MS experiment object (detects all mzml files in specified directory)
 dataSet=ms.ExpSet(path, msExp=ms.msExp, ftype='mzML', nmax=3)
-
+dataSet.files
 # you can use a prepared dataSet object for this tutorial (20 RPNEG spectra)
 # import pickle
 # pickle.dump([dataSet.tic, dataSet.tic_st], open( path+"/first20_tics_msmate.p", "wb" ) )

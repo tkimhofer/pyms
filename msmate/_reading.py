@@ -1108,7 +1108,6 @@ class ExpSet(list_exp):
     #
     #     # get warping functions
 
-
 def rec_attrib(s, ii={}):
     # recursively collecting cvParam
     for at in list(s):
@@ -1152,7 +1151,6 @@ def extract_mass_spectrum_lev1(i, s_level, s_dic):
         I = np.frombuffer(base64.b64decode(pars[3].text), dtype=dt)
 
     return (ii, mz, I)
-
 
 def collect_spectra_chrom(s, ii={}, d=9, c=0, flag='1', tag='', obos={}):
     import re
