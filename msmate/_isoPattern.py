@@ -13,20 +13,21 @@ class element:
             raise ValueError('probs do not sum up to 1')
 
 class element_list:
-    def __init__(self, dd_path='isoDist.xlsx'):
+    def __init__(self, dd_path='Atomic Weights and Isotopic Compositions.csv'):
         import pandas as pd
         import pandas as pd
-        dd = pd.read_excel(dd_path)
-
+        dd = pd.read_csv(dd_path, comment='#')
+        dd = dd[~dd['Isotopic Composition'].isnull()]
         self.data = dd
-        l = self.data.Element.unique()
+        l = self.data.alias.unique()
         for i in range(len(l)):
             id = list(l)[i]
-            sub = self.data[self.data.Element == l[i]]
+            sub = self.data[self.data.alias == l[i]]
             try:
-                s=element(id, sub['Neutrons'].values, sub['massRelAtomic'].values, sub['isotopicComp'].values)
+                s=element(id, sub['Mass Number'].values, sub['Relative Atomic Mass'].values, sub['Isotopic Composition'].values)
                 setattr(self, id, s)
             except:
+                print(f'Skipping {id}')
                 pass
 # el=element_list()
 
@@ -146,6 +147,9 @@ class calc_mzIsotopes:
         if le_om > 0:
             print(f'{le_om} entries omitted where p < {1e-7}')
 
+# calc_mzIsotopes(formula='C3H6O3', el=el)
+
+
 # isotopes(formula, el)
 # plt.scatter(mplus, average_mass)
 
@@ -156,5 +160,44 @@ class calc_mzIsotopes:
 
 
 
-
-# find mz isotopes
+# Extract element data from NIST website
+# import requests as r
+# import re
+# import pandas as pd
+# from datetime import datetime
+#
+# url= 'https://physics.nist.gov/cgi-bin/Compositions/stand_alone.pl?ele=&ascii=ascii2&isotype=some'
+# out = r.get(url)
+#
+# body = re.sub('^.*Description of Quantities and Notes</a>\n\n', '', out.text, flags=re.DOTALL, count=0)
+# elems = re.split('\n', body)
+#
+# atoms = []
+# dls = {}
+# for i in elems:
+#
+#     if i == '' or 'Notes' in i or '<' in i:
+#         continue
+#
+#     if 'Atomic Number ' in i:
+#         if dls.keys().__len__() > 0:
+#             atoms.append(dls)
+#         dls = {}
+#
+#     ex = i.split(' = ')
+#     if ex[1] == '': continue
+#     if 'Mass' in i or 'Composition' in i:
+#         dls.update({ex[0]: float(ex[1].split('(')[0])})
+#     else:
+#         dls.update({ex[0]: ex[1]})
+#
+#
+# df = pd.DataFrame(atoms)
+# alias = df.groupby('Atomic Number').apply(lambda x: x['Atomic Symbol'].iloc[x['Isotopic Composition'].argmax()])
+# alias.name = 'alias'
+#
+# ds = df.join(alias, on='Atomic Number')
+#
+# f = open('/Users/TKimhofer/pyt/pyms/Atomic Weights and Isotopic Compositions.csv', 'a')
+# f.write(f'# Data obtained from NIST Physical Measurement Lab: Atomic Weights and Isotopic Compositions\n# Source URL: {url}\n# Last accessed: {datetime.now().strftime("%d/%m/%Y")}\n')
+# ds.to_csv(f, index=False)
