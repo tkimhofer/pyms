@@ -70,7 +70,7 @@ class list_exp:
 
 class msExp:
     # import methods
-    from ._peak_picking import est_intensities, cl_summary, feat_summary1, peak_picking, vis_feature_pp
+    from msmate._peak_picking import est_intensities, cl_summary, feat_summary1, peak_picking, vis_feature_pp
     #from ._reading import read_mzml, read_bin, exp_meta, node_attr_recurse, rec_attrib, extract_mass_spectrum_lev1
     from ._isoPattern import element, element_list, calc_mzIsotopes
 

@@ -77,12 +77,12 @@ def cl_summary(self, cl_id=7):
     # gaps or doublets in successive scan ids
     x_sid = self.Xf[idx, 0]
     sid_diff = np.diff(x_sid)
-    sid_gap = np.sum((sid_diff > 1) | (sid_diff < 1)) / iLen
+    sid_gap = np.sum((sid_diff > 1) | (sid_diff < 1)) / (iLen-1)
 
     # import matplotlib.pyplot as plt
-    x = self.Xf[idx, 3]
-    y = self.Xf[idx, 2]
-    mz = self.Xf[idx, 1]
+    x = self.Xf[idx, 3] # scantime
+    y = self.Xf[idx, 2] # intensity
+    mz = self.Xf[idx, 1] # mz
     ppm = ppm_mz(mz)
 
     mz_min = np.min(mz)
@@ -91,7 +91,7 @@ def cl_summary(self, cl_id=7):
     rt_max = np.max(x)
 
     if ppm > self.qc_par['ppm']:
-        crit = 'ppm: m/z variability'
+        crit = 'm/z variability of a feature (ppm)'
         qc = {'sId_gap': sid_gap, 'ppm': ppm}
         quant = {}
         descr = {'ndp': iLen, 'st_span': np.round(rt_max - rt_min, 1), \
@@ -102,7 +102,7 @@ def cl_summary(self, cl_id=7):
         return od
 
     if sid_gap > self.qc_par['sId_gap']:
-        crit = 'sId_gap: scan ids missing'
+        crit = 'sId_gap: scan ids not consecutive (%)'
         qc = {'sId_gap': sid_gap, 'ppm': ppm}
         quant = {}
         descr = {'ndp': iLen, 'st_span': np.round(rt_max - rt_min, 1), \
@@ -114,9 +114,13 @@ def cl_summary(self, cl_id=7):
 
     _, icent = wImean(x, y)
 
-    # minor smoothing:
+    # minor smoothing - minimum three data points
     ysm = np.convolve(y, np.ones(3) / 3, mode='valid')
     xsm = x[1:-1]
+
+    # padding
+    ysm = np.concatenate(([y[0]], ysm, [y[-1]]))
+    xsm = x
     idxsm = idx[1:-1]
 
     # I min-max scaling
@@ -126,6 +130,8 @@ def cl_summary(self, cl_id=7):
     ysm = ysm / ysm_max
 
     # bline correction of smoothed signal
+    # if smoothed signal has less than three data points, then this won't work
+    # minimum last points minu
     y_bl = ((np.min(ysm[-3:]) - np.min(ysm[0:3])) / (xsm[-1] - xsm[0])) * (xsm - np.min(xsm)) + np.min(ysm[0:3])
 
     ybcor = ysm - y_bl
@@ -134,8 +140,9 @@ def cl_summary(self, cl_id=7):
     # check peak centre
     _, icent = wImean(xsm, ybcor)
 
-    if (icent < 2) | (icent > len(idxsm) - 2):
-        crit = 'icent: Peak is not centere'
+    # if (icent < 2) | (icent > len(idxsm) - 2):
+    if (icent < 2) | (icent > (len(idx) - 2)):
+        crit = 'icent: Peak is not centered'
         qc = {'sId_gap': sid_gap, 'icent': icent, 'ppm': ppm}
         quant = {}
         descr = {'ndp': iLen, 'st_span': np.round(rt_max - rt_min, 1), \
@@ -248,8 +255,6 @@ def cl_summary(self, cl_id=7):
     od = {'flev': 3,  'qc': qc, 'quant': quant, 'descr': descr, 'fdata': fdata}
     return od
 
-
-
 # def feat_summary(self, st_len_min=10, plot=True, mz_bound=0, rt_bound=0):
 #     import matplotlib.pyplot as plt
 #     from matplotlib.patches import Rectangle
@@ -305,7 +310,6 @@ def cl_summary(self, cl_id=7):
 
 def feat_summary1(self):
     import time
-
     t1 = time.time()
     self.feat = {}
     self.feat_l2 = []
@@ -318,9 +322,6 @@ def feat_summary1(self):
 
     self.feat.update({'id:' + str(x): {'flev': 1, 'crit': 'n < st_len_min'} for x in self.cl_labels[0][~min_le_bool]})
     t2 = time.time()
-    # print('boiler')
-    # print(t2-t1)
-
     c = 0
     for fid in cl_n_above:
         # print(fid)
@@ -336,14 +337,7 @@ def feat_summary1(self):
             self.feat_l3.append(ufid)
     t3 = time.time()
 
-    # print(f'run time per feature')
-    # print((t3-t2)/len(cl_n_above))
-
     qq = [self.feat[x]['qc'][0] if isinstance(self.feat[x]['qc'], type(())) else self.feat[x]['qc'] for x in self.feat_l2 ]
-    # import pandas as pd
-    # import matplotlib.pyplot as plt
-    # out=pd.DataFrame(qq)
-    # plt.scatter(out.sId_gap, out.non_neg, c=out.sino)
 
 
     if len(self.feat_l2) == 0:

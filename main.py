@@ -8,14 +8,20 @@ import msmate as ms
 path='/path/to/mzmlfiles/'
 # path='/Volumes/Backup Plus/Cambridge_RP_POS'
 path='/Users/TKimhofer/Downloads/converted/'
+path='/Users/TKimhofer/Desktop/'
+
 
 ##############
 # detect mzml files
 ##############
 
 # instantiate MS experiment object (detects all mzml files in specified directory)
-dataSet=ms.ExpSet(path, msExp=ms.msExp, ftype='mzML', nmax=3)
+dataSet=ms.ExpSet(path, msExp=ms.msExp, ftype='mzML', nmax=100)
 dataSet.files
+
+dataSet=ms.ExpSet(path, msExp=ms.msExp, ftype='d', nmax=3)
+
+
 # you can use a prepared dataSet object for this tutorial (20 RPNEG spectra)
 # import pickle
 # pickle.dump([dataSet.tic, dataSet.tic_st], open( path+"/first20_tics_msmate.p", "wb" ) )
@@ -30,7 +36,7 @@ dataSet.files
 ##############
 
 # option 1: read-in only selected experiments using pattern matching:
-# dataSet.read(pattern='DDA')
+dataSet.read(pattern='RAI04')
 
 # option 2: read-in all experiments
 dataSet.read()
@@ -48,6 +54,9 @@ dataSet.exp[19].plt_chromatogram(ctype=['tic', 'bpc'])
 dataSet.get_bpc(plot=True)
 dataSet.get_tic(plot=True)
 
+
+import pandas as pd
+df = pd.read_csv('rpos_npc.csv', index_col=0)
 
 ##############
 # compare chromatogram signals and select representative LC-MS experiment
@@ -75,7 +84,18 @@ dataSet.exp[0].plt_chromatogram(ctype=['tic'])
 
 # plot selection of ms level 1 data (using rt and mz window)
 # q_noise: quantile probability of noise intensity (typically 0.95 works well)
-selection={'mz_min':60, 'mz_max':400, 'rt_min':300, 'rt_max': 400}
+
+df.columns
+
+rt_win=15
+mz_win =4
+i=28
+selection={'mz_min': df.iloc[i].mzMin - mz_win , 'mz_max': df.iloc[i].mzMax + mz_win, 'rt_min': df.iloc[i].rt - rt_win, 'rt_max': df.iloc[i].rt + rt_win}
+selection
+print(df.iloc[i])
+dataSet.exp[0].vis_spectrum(q_noise=0.99, selection=selection)
+
+
 dataSet.exp[0].vis_spectrum(q_noise=0.89, selection={'mz_min':120, 'mz_max':140, 'rt_min':355, 'rt_max': 395})
 
 
@@ -89,8 +109,8 @@ dataSet.exp[0].vis_spectrum(q_noise=0.89, selection={'mz_min':120, 'mz_max':140,
 
 
 # clustering paramaters - experiment 1
-dataSet.exp[0].peak_picking(st_adj=6e2, q_noise=0.75, dbs_par={'eps': 0.0041, 'min_samples': 5}, selection=selection,
-                            qc_par = {'st_len_min': 7, 'raggedness': 0.15, 'non_neg': 0.8, 'sId_gap': 0.15, 'sino': 30, 'ppm': 15})
+dataSet.exp[0].peak_picking(st_adj=6e2, q_noise=0.75, dbs_par={'eps': 0.0041, 'min_samples': 2}, selection=selection,
+                            qc_par = {'st_len_min': 3, 'raggedness': 0.55, 'non_neg': 0.8, 'sId_gap': 0.15, 'sino': 1, 'ppm': 25})
 dataSet.exp[0].vis_feature_pp(selection=selection,  lev =3)
 
 el=ms.element_list()
