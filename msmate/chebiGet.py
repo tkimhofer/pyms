@@ -30,6 +30,45 @@ fpath ='/Volumes/ANPC_ext1/ms/covid_cambridge_MS_AA_PAI03_PLASMA4B_070920_QC 2_1
 fpath = '/Volumes/ANPC_ext1/ms/covid_cambridge_MS_AA_PAI03_PLASMA2B_070920_QC 1_2.d'
 
 fpath='/Volumes/ANPC_ext1/ms/covid_cambridge_MS_AA_PAI03_PLASMA4B_070920_Cal 9_5.d'
+self=ExpSum(fpath)
+self=MSexp(fpath)
+
+selection={'mz_min': 100, 'mz_max': 110, 'rt_min': 20, 'rt_max': 90}
+self.viz(selection={'mz_min': 100, 'mz_max': 110, 'rt_min': 70, 'rt_max': 90})
+self.viz1(selection={'mz_min': 100, 'mz_max': 110, 'rt_min': 70, 'rt_max': 90})
+self.plt_chromatogram(ctype=['tic', 'bpc'])
+
+
+self.ms2L(q_noise=0.9, selection=selection)
+self.peak_picking()
+
+
+
+self.df.stype.unique()
+map={x['Id']: x['stype'] for x in self.df}
+map=np.unique(self.Xraw[:,0])
+
+idx=np.where(self.Xraw[:,0]== 300)[0]
+np.ones_like(idx)
+
+# create dict for each scantype
+xr={i: {'Xraw':[], 'df':[]} for i in self.df.stype.unique()}
+
+for i in range(self.df.shape[0]):
+    of = np.ones_like(ss['LineIndexId'][i][1])
+    sid = of * i
+    mz = ss['LineMzId'][i][1]
+    intens = ss['LineIntensityId'][i][1]
+    st = of * ss['sinfo'][i]['Rt']
+    xr[self.df.stype.iloc[i]]['Xraw'].append(np.array([sid, mz, intens, st]))
+
+xrawd={i: np.concatenate(xr[i]['Xraw'], axis=1) for i in self.df.stype.unique()}
+dfd={i: self.df[self.df.stype == i] for i in self.df.stype.unique()}
+
+
+
+out = []
+
 
 fpath='/Users/TKimhofer/Desktop/RPN_Pl/covid_cambridge_MS_RP_NEG_PAI04_PLASMA1B_LTR_11_COND2.d'
 tt = msExp1(fpath)

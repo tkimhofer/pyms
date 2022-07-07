@@ -10,6 +10,7 @@ import pickle
 import time
 import docker as dock
 
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from matplotlib.backend_bases import MouseButton
@@ -226,9 +227,7 @@ class Fdet:
             pass
 
         f, ax = self.vis_spectrum1(**kwargs)
-        # x1, x2 = ax[0].get_xlim()
         y1, y2 = ax[0].get_ylim()
-        # print(x1)
         toggle_selector.RS = RectangleSelector(ax[0], line_select_callback,
                                                drawtype='box', useblit=True,
                                                button=[1, 3],  # don't use middle button
@@ -237,8 +236,7 @@ class Fdet:
                                                interactive=True)
         ax[0].set_ylim([y1, y2])
         ax[0].callbacks.connect('key_press_event', toggle_selector)
-        # f.show()
-        #
+
 
     @log
     def peak_picking(self, mz_adj: float = 40, q_noise: float = 0.89, dbs_par: dict = {'eps': 1.1, 'min_samples': 3},
@@ -257,39 +255,42 @@ class Fdet:
 
         # if desired reduce mz/rt regions for ppicking
         # Xraw has 4 columns: scanId, mz, int, st
-        self.Xf = self.window_mz_rt(self.Xraw, self.selection, allow_none=True, return_idc=False)
+        self.Xf = self.window_mz_rt(self.xrawd[self.ms0string], self.selection, allow_none=True, return_idc=False)
 
         # det noiseInt and append to X
         if qcm_local:
-            self.noise_thres = np.quantile(self.Xf[..., 2], q=self.q_noise)
+            self.noise_thres = np.quantile(self.Xf[2], q=self.q_noise)
         else:
-            self.noise_thres = np.quantile(self.Xraw[..., 2], q=self.q_noise)
+            self.noise_thres = np.quantile(self.xrawd[self.ms0string][2], q=self.q_noise)
 
         # filter noise data points
-        idx_signal = np.where(self.Xf[..., 2] > self.noise_thres)[0]
-        noise = np.ones(self.Xf.shape[0])
+        idx_signal = np.where(self.Xf[2] > self.noise_thres)[0]
+        noise = np.ones(self.Xf.shape[1])
         noise[idx_signal] = 0
-        self.Xf = np.c_[self.Xf, noise]
-        # Xf has 5 columns: scanId, mz, int, st, noiseBool
+        self.Xf = np.r_[self.Xf, noise[np.newaxis, ...]]
+        # Xf has 5 rows: scanId, mz, int, st, noiseBool
         # st adjustment and append to X
-        st_c = np.zeros(self.Xf.shape[0])
-        st_c[idx_signal] = self.Xf[idx_signal, 1] * self.mz_adj
-        self.Xf = np.c_[self.Xf, st_c]
-        # Xf has 6 columns: scanId, mz, int, st, noiseBool, st_adj
+        st_c = np.zeros(self.Xf.shape[1])
+        st_c[idx_signal] = self.Xf[1, idx_signal] * self.mz_adj
+        self.Xf = np.r_[self.Xf, st_c[np.newaxis, ...]]
+        # Xf has 6 rows: scanId, mz, int, st, noiseBool, st_adj
         print(f'Clustering, number of dp: {len(idx_signal)}')
         s1 = time.time()
         dbs = DBSCAN(eps=self.dbs_par['eps'], min_samples=self.dbs_par['min_samples'], algorithm='auto').fit(
-            self.Xf[idx_signal, :][..., np.array([0, 5])])
+            self.Xf[..., idx_signal][np.array([0, 5]), ...].T)
         s2 = time.time()
 
         print(f'dt dbscan: {np.round(s2 - s1)} s')
         # append cluster membership to windowed Xraw
         self.cl_labels = np.unique(dbs.labels_, return_counts=True)
-        cl_mem = np.ones(self.Xf.shape[0]) * -1
+        cl_mem = np.ones(self.Xf.shape[1]) * -1
         cl_mem[idx_signal] = dbs.labels_
-        self.Xf = np.c_[self.Xf, cl_mem]  # Xf has 7 columns: scanId, mz, int, st, noiseBool, st_adj, clMem
+        self.Xf = np.r_[self.Xf, cl_mem]  # Xf has 7 columns: scanId, mz, int, st, noiseBool, st_adj, clMem
         s3 = time.time()
-        self.feat_summary1()
+        # @TODO check feat_summary for row and columns swap in X'
+        # @FIXME hithere
+        print('CHEKC feat_SUMMARY etc row and columns swaps')
+        # self.feat_summary1()
         s5 = time.time()
 
         print(f'total time pp (min): {np.round((s5-s0)/60, 1)}')
@@ -369,7 +370,6 @@ class Fdet:
             data = np.array([list(fdict['qc'].keys()), np.round(list(fdict['qc'].values()), 2)]).T
             column_labels = ["descr", "value"]
             ax.table(cellText=data, colLabels=column_labels, loc='lower right', colWidths=[0.1] * 3)
-
             return ax
 
         # Xf has 7 columns: 0 - scanId, 1 - mz, 2 - int, 3 - st, 4 - noiseBool, 5 - st_adj, 6 - clMem
@@ -392,16 +392,16 @@ class Fdet:
         axs[1].text(1.03, 0, self.fname, rotation=90, fontsize=6, transform=axs[1].transAxes)
 
         # fill axis for raw data results
-        idc_above = np.where(Xsub[:, 2] > self.noise_thres)[0]
-        idc_below = np.where(Xsub[:, 2] <= self.noise_thres)[0]
+        idc_above = np.where(Xsub[2] > self.noise_thres)[0]
+        idc_below = np.where(~idc_above)[0]
 
         cm = plt.cm.get_cmap('rainbow')
-        axs[1].scatter(Xsub[idc_below, 3], Xsub[idc_below, 1], s=0.1, c='gray', alpha=0.5)
+        axs[1].scatter(Xsub[3, idc_below], Xsub[1, idc_below], s=0.1, c='gray', alpha=0.5)
 
-        imax = np.log(Xsub[idc_above, 2])
+        imax = np.log(Xsub[2, idc_above])
         psize = (imax/np.max(imax)) * 5
 
-        im = axs[1].scatter(Xsub[idc_above, 3], Xsub[idc_above, 1], c=np.log(Xsub[idc_above, 2]), s=psize, cmap=cm)
+        im = axs[1].scatter(Xsub[3, idc_above], Xsub[1, idc_above], c=np.log(Xsub[2, idc_above]), s=psize, cmap=cm)
 
 
         # axs[1].scatter(Xsub[Xsub[:, 4] == 0, 3], Xsub[Xsub[:, 4] == 0, 1], s=0.1, c='gray', alpha=0.5)
@@ -502,18 +502,18 @@ class Fdet:
             return np.std(mz) / np.mean(mz) * 1e6
 
         # dp idx for cluster
-        idx = np.where(self.Xf[:, 6] == cl_id)[0]
+        idx = np.where(self.Xf[6] == cl_id)[0]
         iLen = len(idx)
 
         # gaps or doublets in successive scan ids
-        x_sid = self.Xf[idx, 0]
+        x_sid = self.Xf[0, idx]
         sid_diff = np.diff(x_sid)
         sid_gap = np.sum((sid_diff > 1) | (sid_diff < 1)) / (iLen - 1)
 
         # import matplotlib.pyplot as plt
-        x = self.Xf[idx, 3]  # scantime
-        y = self.Xf[idx, 2]  # intensity
-        mz = self.Xf[idx, 1]  # mz
+        x = self.Xf[3, idx]  # scantime
+        y = self.Xf[2, idx]  # intensity
+        mz = self.Xf[1, idx]  # mz
         ppm = ppm_mz(mz)
 
         mz_min = np.min(mz)
@@ -600,8 +600,8 @@ class Fdet:
 
         # signal / noise
         scans = np.unique(x_sid)
-        scan_id = np.concatenate([np.where((self.Xf[:, 0] == x) & (self.Xf[:, 4] == 1))[0] for x in scans])
-        noiI = np.median(self.Xf[scan_id, 2])
+        scan_id = np.concatenate([np.where((self.Xf[0] == x) & (self.Xf[4] == 1))[0] for x in scans])
+        noiI = np.median(self.Xf[2, scan_id])
         sino = bcor_max / noiI
 
         if sino < self.qc_par['sino']:
@@ -636,10 +636,10 @@ class Fdet:
             return od
 
         # general feature descriptors
-        mz_maxI = np.max(self.Xf[idx, 2])
+        mz_maxI = np.max(self.Xf[2, idx])
         mz_mean = np.mean(mz)
 
-        rt_maxI = x[np.argmax(self.Xf[idx, 2])]
+        rt_maxI = x[np.argmax(self.Xf[2, idx])]
         rt_mean = np.mean(xsm)
 
         # create subset with equal endings
@@ -722,7 +722,7 @@ class MSexp(Fdet, MSstat):
         self.mslevel = str(docker['mslevel']) if not isinstance(docker['mslevel'], list) else tuple(map(str, np.unique(docker['mslevel'])))
         if len(self.mslevel) == 1:
             self.mslevel = self.mslevel[0]
-        self.smode = str(docker['smode']) if not isinstance(docker['smode'], list) else tuple(map(str, np.unique(docker['smode'])))
+        self.smode = str(docker['smode']) if not isinstance(docker['smode'], list) else tuple(map(str, np.unique(docker['smode']).tolist()))
         if len(self.smode) == 1:
             self.smode = self.smode[0]
         self.amode = str(docker['amode'])
@@ -733,7 +733,6 @@ class MSexp(Fdet, MSstat):
         self.dpath = os.path.abspath(dpath)
         self.dbfile = os.path.join(dpath, 'analysis.sqlite')
         self.fname = os.path.basename(dpath)
-        # does it contain msmate object
         self.msmfile = os.path.join(dpath,
                      f'mm8v3_edata_msl{self.docker["mslevel"]}_sm{"".join(self.docker["smode"])}_am{self.docker["amode"]}_seg{"".join(self.docker["seg"])}.p')
         if os.path.exists(self.msmfile):
@@ -744,7 +743,7 @@ class MSexp(Fdet, MSstat):
                 self.read_mm8()
             else:
                 raise SystemError('d folder requries conversion, enable docker convo')
-        self.ecdf()
+        # self.ecdf()
     @log
     def convoDocker(self):
         t0=time.time()
@@ -767,34 +766,53 @@ class MSexp(Fdet, MSstat):
 
         if any((self.df.ScanMode == 5) & ~(self.df.MsLevel == 0)):
             raise ValueError('Check AcquisitionKeys for scan types - combo not encountered before')
-
-
         idx_dda = (self.df.ScanMode == 2) & (self.df.ScanMode == 1)
         if any(idx_dda):
             print('DDA')
         idx_dia = (self.df.ScanMode == 5) & (self.df.MsLevel == 0)
         if any(idx_dia):
             print('DIA')
+        if any(idx_dia) & any(idx_dda):
+            raise ValueError('Check AcquisitionKeys for scan types - combo dda and dia not encountered before')
         idx_ms0 = (self.df.ScanMode == 0) & (self.df.MsLevel == 0)
 
+        self.ms0string = self.df['stype'][idx_ms0].unique()[1:][0]
+        if any(~idx_ms0):
+            self.ms1string = self.df['stype'][~idx_ms0].unique()[0]
+        else:
+            self.ms1string: None
         self.df['LevPP'] = None
         add =  self.df['LevPP'].copy()
         add.loc[idx_dda] = 'dda'
         add.loc[idx_dia] = 'dia'
         add.loc[idx_ms0] = 'fs'
-
         self.df['LevPP'] = add
+
+    def rawd(self, ss):
+        # create dict for each scantype
+        xr = {i: {'Xraw': [], 'df': []} for i in self.df.stype.unique()}
+        c = {i: 0 for i in self.df.stype.unique()}
+
+
+
+        for i in range(self.df.shape[0]):
+            of = np.ones_like(ss['LineIndexId'][i][1])
+            sid = of * i
+            mz = ss['LineMzId'][i][1]
+            intens = ss['LineIntensityId'][i][1]
+            st = of * ss['sinfo'][i]['Rt']
+            sid1 = np.ones_like(ss['LineIndexId'][i][1]) * c[self.df.stype.iloc[i]]
+            xr[self.df.stype.iloc[i]]['Xraw'].append(np.array([sid, mz, intens, st, sid1]))
+            c[self.df.stype.iloc[i]] += 1
+
+        self.xrawd = {i: np.concatenate(xr[i]['Xraw'], axis=1) for i in self.df.stype.unique()}
+        self.dfd = {i: self.df[self.df.stype == i] for i in self.df.stype.unique()}
 
     @log
     def read_mm8(self):
         ss = pickle.load(open(self.msmfile, 'rb'))
-
         self.df = pd.DataFrame(ss['sinfo'])
-        self.msZeroPP()
-
         # define ms level for viz and peak picking
-
-
         idcS3 = (self.df.Segment == 3).values
         if any(idcS3):
             self.df['stype'] = "0"
@@ -802,29 +820,27 @@ class MSexp(Fdet, MSstat):
             add[idcS3] = [f'{x["MsLevel"]}_{x["AcquisitionKey"]}_{x["AcquisitionMode"]}_{x["ScanMode"]}_{x["Collision_Energy_Act"]}' for x in ss['sinfo'] if x['Segment'] == 3]
             self.df['stype'] = add
 
-        self.scanid = np.concatenate([np.ones_like(ss['LineIndexId'][i][1]) * i for i in range(len(ss['sinfo']))]).astype(int)
-        self.mz = np.concatenate([x[1] for x in ss['LineMzId']])
-        self.I = np.concatenate([x[1] for x in ss['LineIntensityId']])
-        self.scantime = np.concatenate([np.ones_like(ss['LineIndexId'][i][1]) * ss['sinfo'][i]['Rt'] for i in range(len(ss['sinfo']))])
-        self.nd = len(self.I)
-        self.Xraw = np.array([self.scanid, self.mz, self.I, self.scantime]).T
+        self.msZeroPP()
 
+        # create dict for each scantype and df
+        self.rawd(ss)
 
         polmap = {0: 'P', 1: 'N'}
         df1 = pd.DataFrame(
             [(polmap[x['Polarity']], str(x['MzAcqRangeLower']) + '-' + str(x['MzAcqRangeUpper']), x['MsLevel']) for x in ss['sinfo']], columns=['Polarity', 'MzAcqRange', 'MsLevel'])
         df1 = pd.DataFrame([self.csummary(i, df1) for i in range(df1.shape[1])], index=df1.columns).transpose()
         df1['nSc'] = len(ss['sinfo'])
-
         df2 = pd.DataFrame([(x['AcquisitionMode'], x['ScanMode'], x['Segment']) for x in ss['sinfo']],
                            columns=['AcqMode', 'ScMode', 'Segments'])
         t = pd.DataFrame(df2.groupby(['Segments']).apply(lambda x: self.vc(x, n=df2.shape[0])))
         t = t.rename(index={t.index[i]: 'Segment ' + str(t.index[i]) for i in range(t.shape[0])}).transpose()
-        asps = 1 / ((self.scantime.max() - self.scantime.min()) /  df1['nSc'].iloc[0])  # hz
-        ii = np.diff(np.unique(self.scantime))
-        sps = pd.DataFrame(
-            {'ScansPerSecAver': asps, 'ScansPerSecMin': 1 / ii.max(), 'ScansPerSecMax': 1 / ii.min()}, index=[0])
-        self.summary = pd.concat([df1, t, sps], axis=1)
+        self.summary = pd.concat([df1, t], axis=1)
+
+        # asps = 1 / ((self.df.Rt.max() - self.df.Rt.min()) /  df1['nSc'].iloc[0])  # hz
+        # ii = np.diff(np.unique(self.df.Rt))
+        # sps = pd.DataFrame(
+        #     {'ScansPerSecAver': asps, 'ScansPerSecMin': 1 / ii.max(), 'ScansPerSecMax': 1 / ii.min()}, index=[0])
+        # self.summary = pd.concat([df1, t, sps], axis=1)
 
     # @log
     @staticmethod
@@ -854,112 +870,95 @@ class MSexp(Fdet, MSstat):
     @staticmethod
     def window_mz_rt(Xr: np.ndarray, selection:dict ={'mz_min': None, 'mz_max': None, 'rt_min': None, 'rt_max': None},
                      allow_none:bool=False, return_idc:bool=False):
-        # make selection on Xr based on rt and mz range
-        # allow_none: true if None alowed in selection (then full range is used)
         part_none = any([x == None for x in selection.values()])
         all_fill = any([x != None for x in selection.values()])
-
         if not allow_none:
             if not all_fill:
                 raise ValueError('Define plot boundaries with selection argument.')
         if part_none:
             if selection['mz_min'] is not None:
-                t1 = Xr[..., 1] >= selection['mz_min']
+                t1 = Xr[1] >= selection['mz_min']
             else:
-                t1 = np.ones(Xr.shape[0], dtype=bool)
-
+                t1 = np.ones(Xr.shape[1], dtype=bool)
             if selection['mz_max'] is not None:
-                t2 = Xr[..., 1] <= selection['mz_max']
+                t2 = Xr[1] <= selection['mz_max']
             else:
-                t2 = np.ones(Xr.shape[0], dtype=bool)
-
+                t2 = np.ones(Xr.shape[1], dtype=bool)
             if selection['rt_min'] is not None:
-                t3 = Xr[..., 3] > selection['rt_min']
+                t3 = Xr[3] > selection['rt_min']
             else:
-                t3 = np.ones(Xr.shape[0], dtype=bool)
-
+                t3 = np.ones(Xr.shape[1], dtype=bool)
             if selection['rt_max'] is not None:
-                t4 = Xr[..., 3] < selection['rt_max']
+                t4 = Xr[3] < selection['rt_max']
             else:
-                t4 = np.ones(Xr.shape[0], dtype=bool)
+                t4 = np.ones(Xr.shape[1], dtype=bool)
         else:
-            t1 = Xr[..., 1] >= selection['mz_min']
-            t2 = Xr[..., 1] <= selection['mz_max']
-            t3 = Xr[..., 3] > selection['rt_min']
-            t4 = Xr[..., 3] < selection['rt_max']
+            t1 = Xr[1] >= selection['mz_min']
+            t2 = Xr[1] <= selection['mz_max']
+            t3 = Xr[3] > selection['rt_min']
+            t4 = Xr[3] < selection['rt_max']
         idx = np.where(t1 & t2 & t3 & t4)[0]
         if return_idc:
             return idx
         else:
-            return Xr[idx, ...]
+            return Xr[..., idx]
+
+    @staticmethod
+    def tick_conv(X):
+        V = X / 60
+        return ["%.2f" % z for z in V]
+
     @log
-    def vis_spectrum(self, q_noise:float=0.89, selection:dict={'mz_min': None, 'mz_max': None, 'rt_min': None, 'rt_max': None}):
-        # visualise part of the spectrum, before peak picking
-
-        Xsub = self.window_mz_rt(self.Xraw, selection, allow_none=False)
-
-        # filter noise points
-        noise_thres = np.quantile(self.Xraw[..., 2], q=q_noise)
-        idc_above = np.where(Xsub[:, 2] > noise_thres)[0]
-        idc_below = np.where(Xsub[:, 2] <= noise_thres)[0]
-
+    def viz(self, q_noise:float=0.89, selection:dict={'mz_min': None, 'mz_max': None, 'rt_min': None, 'rt_max': None}):
+        Xsub = self.window_mz_rt(self.xrawd[self.ms0string], selection, allow_none=False)
+        noise_thres = np.quantile(self.xrawd[self.ms0string][2], q=q_noise)
+        idc_above = np.where(Xsub[2,:] > noise_thres)[0]
+        idc_below = np.where(Xsub[2,:] <= noise_thres)[0]
         cm = plt.cm.get_cmap('rainbow')
-        # fig, ax = plt.subplots()
         fig = plt.figure()
         ax = fig.add_subplot(111)
-        ax.text(1.25, 0, self.fname, rotation=90, fontsize=6, transform=ax.transAxes)
-
-        ax.scatter(Xsub[idc_below, 3], Xsub[idc_below, 1], s=0.1, c='gray', alpha=0.5)
-        im = ax.scatter(Xsub[idc_above, 3], Xsub[idc_above, 1], c=np.log(Xsub[idc_above, 2]), s=5, cmap=cm)
+        ax.text(1.25, 0, self.dpath, rotation=90, fontsize=6, transform=ax.transAxes)
+        ax.scatter(Xsub[3, idc_below], Xsub[1, idc_below], s=0.1, c='gray', alpha=0.5)
+        im = ax.scatter(Xsub[3, idc_above], Xsub[1, idc_above], c=np.log(Xsub[2, idc_above]), s=5, cmap=cm)
         fig.canvas.draw()
-
-        ax.set_xlabel(r"$\bfScan time$ (sec)")
+        ax.set_xlabel(r"$\bfScan time$ [sec]")
         ax2 = ax.twiny()
-
         ax.yaxis.offsetText.set_visible(False)
         ax.yaxis.set_label_text(r"$\bfm/z$")
-
-        def tick_conv(X):
-            V = X / 60
-            return ["%.2f" % z for z in V]
-
-        tmax = np.max(Xsub[:, 3])
-        tmin = np.min(Xsub[:, 3])
-
+        tmax = np.max(Xsub[3])
+        tmin = np.min(Xsub[3])
         tick_loc = np.linspace(tmin / 60, tmax / 60, 5) * 60
-        # tick_loc = np.arange(np.round((tmax - tmin) / 60, 0), 0.1)*60
         ax2.set_xlim(ax.get_xlim())
         ax2.set_xticks(tick_loc)
-        ax2.set_xticklabels(tick_conv(tick_loc))
-        ax2.set_xlabel(r"Scan time (min)")
+        ax2.set_xticklabels(self.tick_conv(tick_loc))
+        ax2.set_xlabel(r"[min]")
         fig.colorbar(im, ax=ax)
         fig.show()
-
         return (fig, ax)
+
     # @log
     @staticmethod
     def get_density(X:np.ndarray, bw:float, q_noise:float=0.5):
-        xmin = X[:, 1].min()
-        xmax = X[:, 1].max()
+        xmin = X[1].min()
+        xmax = X[1].max()
         b = np.linspace(xmin, xmax, 500)
-        idxf = np.where(X[:, 2] > np.quantile(X[:, 2], q_noise))[0]
-        x_rev = X[idxf, 1]
+        idxf = np.where(X[2] > np.quantile(X[2], q_noise))[0]
+        x_rev = X[1, idxf]
         kde = KernelDensity(kernel="gaussian", bandwidth=bw).fit(x_rev[:, np.newaxis])
         log_dens = np.exp(kde.score_samples(b[:, np.newaxis]))
         return (b, log_dens / np.max(log_dens))
+
     @log
-    def vis_spectrum1(self, q_noise:float=0.50, selection:dict={'mz_min': None, 'mz_max': None, 'rt_min': None, 'rt_max': None}, qcm_local: bool=False):
+    def viz1(self, q_noise:float=0.50, selection:dict={'mz_min': None, 'mz_max': None, 'rt_min': None, 'rt_max': None}, qcm_local: bool=False):
         @log
-        def on_lims_change(event_ax: plt.axis):  # f=self.get_density, fil = self.window_mz_rt
-            # print(event_ax.__class__)
+        def on_lims_change(event_ax: plt.axis):
             x1, x2 = event_ax.get_xlim()
             y1, y2 = event_ax.get_ylim()
             selection = {'mz_min': y1, 'mz_max': y2, 'rt_min': x1, 'rt_max': x2}
-            Xs = self.window_mz_rt(self.Xraw, selection, allow_none=False)
+            Xs = self.window_mz_rt(self.xrawd[self.ms0string], selection, allow_none=False)
             bsMin = (y2 - y1) / 200 if ((y2 - y1) / 200) > 0.0001 else 0.0001
             bw = bsMin
             y, x = self.get_density(Xs, bw, q_noise=q_noise)
-
             axs[1].clear()
             axs[1].set_ylim([y1, y2])
             axs[1].plot(x, y, c='black')
@@ -969,24 +968,19 @@ class MSexp(Fdet, MSstat):
                             xy=(1, y1 + np.min([0.1, float((y2 - y1) / 100)])), fontsize='xx-small', ha='right')
             axs[1].text(1.05, 0, self.fname, rotation=90, fontsize=4, transform=axs[1].transAxes)
             axs[1].tick_params(axis='y', direction='in')
-
-        idl0 = (self.df.Id[self.df['LevPP'] == 'fs']-1).values
-        [x in idl0 for x in self.Xraw[:,0]]
-
-        self.df.Id[self.df['LevPP'] == 'fs']-1
-        Xsub = self.window_mz_rt(self.Xraw[self.df['LevPP'] == 'fs'], selection, allow_none=False)
+        Xsub = self.window_mz_rt(self.xrawd[self.ms0string], selection, allow_none=False)
         if qcm_local:
-            noise_thres, vmi, vma = np.quantile(Xsub[..., 2], q=[q_noise, 0, 1])
+            noise_thres, vmi, vma = np.quantile(Xsub[2], q=[q_noise, 0, 1])
         else:
-            noise_thres, vmi, vma = np.quantile(self.Xraw[self.df['LevPP'] == 'fs', 2], q=[q_noise, 0, 1])
-        idc_above = np.where(Xsub[:, 2] > noise_thres)[0]
-        idc_below = np.where(Xsub[:, 2] <= noise_thres)[0]
+            noise_thres, vmi, vma = np.quantile(self.xrawd[self.ms0string][2], q=[q_noise, 0, 1])
+        idc_above = np.where(Xsub[2] > noise_thres)[0]
+        idc_below = np.where(~idc_above)[0]
         cm = plt.cm.get_cmap('rainbow')
         fig, axs = plt.subplots(1, 2, sharey=False, gridspec_kw={'width_ratios': [3, 1]})
         axs[1].text(1.05, 0, self.fname, rotation=90, fontsize=4, transform=axs[1].transAxes)
         axs[1].tick_params(axis='y', direction='in')
-        axs[0].scatter(Xsub[idc_below, 3], Xsub[idc_below, 1], s=0.1, c='gray', alpha=0.5)
-        im = axs[0].scatter(Xsub[idc_above, 3], Xsub[idc_above, 1], c=(Xsub[idc_above, 2]), s=5, cmap=cm,
+        axs[0].scatter(Xsub[3, idc_below], Xsub[1, idc_below], s=0.1, c='gray', alpha=0.5)
+        im = axs[0].scatter(Xsub[3, idc_above], Xsub[1, idc_above], c=(Xsub[2, idc_above]), s=5, cmap=cm,
                             norm=LogNorm(vmi, vma))
         cbaxes = fig.add_axes([0.15, 0.77, 0.021, 0.1])
         cb = fig.colorbar(mappable=im, cax=cbaxes, orientation='vertical',
@@ -996,105 +990,164 @@ class MSexp(Fdet, MSstat):
         axs[0].callbacks.connect('ylim_changed', on_lims_change)
         return (fig, axs)
 
-    def massSpectrumDIA(self, sid=30, scantype='0_2_2_5_20.0'):
+    def massSpectrumDIA(self, rt:float=150., scantype:str='0_2_2_5_20.0', viz:bool=False):
         import matplotlib.pyplot as plt
-        from matplotlib.colors import LogNorm
         import numpy as np
-
-        idc = np.where(self.df.stype == scantype)[0]
-        idx = np.argmin(np.abs((self.df.Id.iloc[idc]-1)-sid))
-        inf = self.df.iloc[idc[idx]]
-
-        sub = self.Xraw[self.Xraw[:,0] == inf.Id-1]
-        f, ax = plt.subplots(1, 1)
-        mz = sub[:,1]
-        intens =  sub[:,2]
-        ax.vlines(sub[:,1], np.zeros_like(mz), intens/np.max(intens) *100)
-        ax.text(0.77, 0.95, f'Acq Type: {inf.LevPP.upper()}', rotation=0, fontsize=8, transform=ax.transAxes, ha='left')
-        ax.text(0.77, 0.9, f'Rt: {inf.Rt} s', rotation=0, fontsize=8, transform=ax.transAxes, ha='left')
-        ax.text(0.77, 0.85, f'Collision E: {inf.Collision_Energy_Act} eV', rotation=0, fontsize=8, transform=ax.transAxes, ha='left')
-        return (f, ax)
+        df = self.dfd[scantype]
+        idx = np.argmin(np.abs(df.Rt-rt))
+        inf = df.iloc[idx]
+        sub = self.xrawd[scantype]
+        sub = sub[..., sub[0] == (inf.Id-1)]
+        if viz:
+            f, ax = plt.subplots(1, 1)
+            mz = sub[1]
+            intens =  sub[2]
+            ax.vlines(sub[1], np.zeros_like(mz), intens/np.max(intens) * 100)
+            ax.text(0.77, 0.95, f'Acq Type: {inf.LevPP.upper()}', rotation=0, fontsize=8, transform=ax.transAxes, ha='left')
+            ax.text(0.77, 0.9, f'Rt: {inf.Rt} s', rotation=0, fontsize=8, transform=ax.transAxes, ha='left')
+            ax.text(0.77, 0.85, f'Collision E: {inf.Collision_Energy_Act} eV', rotation=0, fontsize=8, transform=ax.transAxes, ha='left')
+            return (f, ax)
+        else:
+            return (sub[1], sub[2] / np.max(sub[2]) * 100, np.zeros_like(sub[0]), inf)
 
     def ms2L(self, q_noise, selection):
-        pass
+        mpl.rcParams['keymap.back'].remove('left') if ('left' in mpl.rcParams['keymap.back']) else None
+        def on_lims_change(event_ax: plt.axis):
+            x1, x2 = event_ax.get_xlim()
+            y1, y2 = event_ax.get_ylim()
+            selection = {'mz_min': y1, 'mz_max': y2, 'rt_min': x1, 'rt_max': x2}
+            Xs = self.window_mz_rt(self.xrawd[self.ms0string], selection, allow_none=False)
+            bsMin = (y2 - y1) / 200 if ((y2 - y1) / 200) > 0.0001 else 0.0001
+            bw = bsMin
+            y, x = self.get_density(Xs, bw, q_noise=q_noise)
+            axs[1, 1].clear()
+            axs[1, 1].set_ylim([y1, y2])
+            axs[1, 1].plot(x, y, c='black')
+            axs[1, 1].tick_params(labelleft=False)
+            axs[1, 1].set_xticks([])
+            axs[1, 1].annotate(f'bw: {np.round(bw, 5)}\np: {np.round(q_noise, 3)}',
+                            xy=(1, y1 + np.min([0.1, float((y2 - y1) / 100)])), fontsize='xx-small', ha='right')
+            axs[1, 1].text(1.05, 0, self.fname, rotation=90, fontsize=4, transform=axs[1, 1].transAxes)
+            axs[1, 1].tick_params(axis='y', direction='in')
 
-    # def vis_spectrum2(self, q_noise=0.50, selection={'mz_min': None, 'mz_max': None, 'rt_min': None, 'rt_max': None}):
-    #     def on_lims_change(event_ax):
-    #         x1, x2 = event_ax.get_xlim()
-    #         y1, y2 = event_ax.get_ylim()
-    #         selection = {'mz_min': y1, 'mz_max': y2, 'rt_min': x1, 'rt_max': x2}
-    #
-    #         Xs = self.window_mz_rt(self.Xraw, selection, allow_none=False)
-    #         print(Xs.shape)
-    #         scsum = []
-    #         for i in np.unique(Xs[:,0]):
-    #             scsum.append(np.sum(Xs[Xs[:,0] == i,2]))
-    #         bsMin = (y2 - y1) / 200 if ((y2 - y1) / 200) > 0.0001 else 0.0001
-    #         bw = bsMin
-    #         y, x = self.get_density(Xs, bw, q_noise=q_noise)
-    #
-    #         axs[1, 1].clear()
-    #         axs[1, 1].set_ylim([y1, y2])
-    #         axs[1, 1].plot(x, y, c='black')
-    #         axs[1, 1].tick_params(labelleft=False)
-    #         axs[1, 1].set_xticks([])
-    #         axs[1, 1].annotate(f'bw: {np.round(bw, 5)}\np: {np.round(q_noise, 3)}',
-    #                         xy=(1, y1 + np.min([0.1, float((y2 - y1) / 100)])), fontsize='xx-small', ha='right')
-    #         axs[1, 1].text(1.05, 0, self.fname, rotation=90, fontsize=4, transform=axs[1,1].transAxes)
-    #         axs[1, 1].tick_params(axis='y', direction='in')
-    #
-    #         axs[0,0].clear()
-    #         axs[0,0].set_xlim([x1, x2])
-    #         #axs[0,0].set_ylim([])
-    #         st = np.unique(Xs[:, 3])
-    #         print(st)
-    #         plt.figure()
-    #         plt.plot(st, scsh )
-    #         axs[0,0].plot(st, scsum, c='black')
-    #         axs[0,0].tick_params(labelbottom=False, axis='x', direction='in')
-    #         axs[0,0].set_yticks([])
-    #         # axs[0,0].annotate(f'bw: {np.round(bw, 5)}\np: {np.round(q_noise, 3)}',
-    #         #                    xy=(1, y1 + np.min([0.1, float((y2 - y1) / 100)])), fontsize='xx-small', ha='right')
-    #         # axs[0,0].text(1.05, 0, self.fname, rotation=90, fontsize=4, transform=axs[1].transAxes)
-    #         #axs[0,0].tick_params(axis='y', direction='in')
-    #
-    #
-    #
-    #
-    #
-    #     import matplotlib.pyplot as plt
-    #     from matplotlib.colors import LogNorm
-    #     from matplotlib.ticker import LogFormatterSciNotation
-    #     import numpy as np
-    #     Xsub = self.window_mz_rt(self.Xraw, selection, allow_none=False)
-    #     noise_thres = np.quantile(self.Xraw[..., 2], q=q_noise)
-    #     idc_above = np.where(Xsub[:, 2] > noise_thres)[0]
-    #     idc_below = np.where(Xsub[:, 2] <= noise_thres)[0]
-    #     cm = plt.cm.get_cmap('rainbow')
-    #     fig, axs = plt.subplots(2, 2, sharey=False, gridspec_kw={'width_ratios': [3, 0.7], 'height_ratios': [0.7, 3]})
-    #     axs[1, 1].text(1.05, 0, self.fname, rotation=90, fontsize=4, transform=axs[1, 1].transAxes)
-    #     axs[1, 1].tick_params(axis='y', direction='in')
-    #     #axs[0, 1].tick_params(axis='y', direction='in')
-    #     axs[0, 0].tick_params(axis='both', direction='in')
-    #     axs[1, 0].scatter(Xsub[idc_below, 3], Xsub[idc_below, 1], s=0.1, c='gray', alpha=0.5)
-    #     im = axs[1, 0].scatter(Xsub[idc_above, 3], Xsub[idc_above, 1], c=(Xsub[idc_above, 2]), s=5, cmap=cm,
-    #                         norm=LogNorm())
-    #     cbaxes = fig.add_axes([0.15, 0.57, 0.021, 0.1])
-    #     cb = fig.colorbar(mappable=im, cax=cbaxes, orientation='vertical',
-    #                       format=LogFormatterSciNotation(base=10, labelOnlyBase=False))
-    #     cb.ax.tick_params(labelsize='xx-small')
-    #     fig.subplots_adjust(wspace=0.05, hspace=0.05)
-    #     axs[1, 0].callbacks.connect('ylim_changed', on_lims_change)
+        def on_key(event_ax: plt.axis):
+            self.xind.set_visible(False)
+            if event_ax.key == 'f':
+                self.rtPlot = event_ax.xdata
+                axs[0,0].clear()
+                mz, intens, ylim0, inf = self.massSpectrumDIA(rt=self.rtPlot, scantype=self.ms1string, viz=False)
+                axs[0, 0].vlines(mz, ylim0, intens)
+                axs[0, 0].text(0.77, 0.85, f'Acq Type: {inf.LevPP.upper()}', rotation=0, fontsize='xx-small',
+                               transform=axs[0, 0].transAxes, ha='left')
+                axs[0, 0].text(0.77, 0.75, f'Rt: {np.round(inf.Rt, 2)} s ({inf.Id})', rotation=0, fontsize='xx-small',
+                               transform=axs[0, 0].transAxes, ha='left')
+                axs[0, 0].text(0.77, 0.65, f'Collision E: {inf.Collision_Energy_Act} eV', rotation=0, fontsize='xx-small',
+                               transform=axs[0, 0].transAxes, ha='left')
+                axs[0, 0].text(0.77, 0.55, f'Parent: {inf.Parent}', rotation=0, fontsize='xx-small',
+                               transform=axs[0, 0].transAxes, ha='left')
+                axs[0, 0].text(0.77, 0.45, f'Isolation mass: {inf.MSMS_IsolationMass_Act}', rotation=0, fontsize='xx-small',
+                               transform=axs[0, 0].transAxes, ha='left')
+                axs[0, 0].text(0.77, 0.35, f'IM Res: {inf.Quadrupole_IsolationResolution_Act}', rotation=0,
+                               fontsize='xx-small', transform=axs[0, 0].transAxes, ha='left')
+                axs[1, 0].arrow(self.rtPlot, 0, 0, 5, color='red')
+
+
+            if event_ax.key == 'right':
+                self.rtPlot = self.dfd[self.ms1string].iloc[np.argmin(np.abs(self.rtPlot - self.dfd[self.ms1string].Rt))+1].Rt
+                xl = axs[0, 0].get_xlim()
+                axs[0, 0].clear()
+                axs[0, 0].set_xlim(xl)
+                mz, intens, ylim0, inf = self.massSpectrumDIA(rt=self.rtPlot, scantype=self.ms1string, viz=False)
+                axs[0, 0].vlines(mz, ylim0, intens)
+                axs[0, 0].text(0.77, 0.85, f'Acq Type: {inf.LevPP.upper()}', rotation=0, fontsize='xx-small',
+                               transform=axs[0, 0].transAxes, ha='left')
+                axs[0, 0].text(0.77, 0.75, f'Rt: {np.round(inf.Rt, 2)} s ({inf.Id})', rotation=0, fontsize='xx-small',
+                               transform=axs[0, 0].transAxes, ha='left')
+                axs[0, 0].text(0.77, 0.65, f'Collision E: {inf.Collision_Energy_Act} eV', rotation=0, fontsize='xx-small',
+                               transform=axs[0, 0].transAxes, ha='left')
+                axs[0, 0].text(0.77, 0.55, f'Parent: {inf.Parent}', rotation=0, fontsize='xx-small',
+                               transform=axs[0, 0].transAxes, ha='left')
+                axs[0, 0].text(0.77, 0.45, f'Isolation mass: {inf.MSMS_IsolationMass_Act}', rotation=0, fontsize='xx-small',
+                               transform=axs[0, 0].transAxes, ha='left')
+                axs[0, 0].text(0.77, 0.35, f'IM Res: {inf.Quadrupole_IsolationResolution_Act}', rotation=0,
+                               fontsize='xx-small', transform=axs[0, 0].transAxes, ha='left')
+
+            if event_ax.key == 'left':
+                print('yay')
+                self.rtPlot = self.dfd[self.ms1string].iloc[np.argmin(np.abs(self.rtPlot - self.dfd[self.ms1string].Rt))-1].Rt
+                xl = axs[0, 0].get_xlim()
+                axs[0, 0].clear()
+                axs[0, 0].set_xlim(xl)
+                mz, intens, ylim0, inf = self.massSpectrumDIA(rt=self.rtPlot, scantype=self.ms1string, viz=False)
+                axs[0, 0].vlines(mz, ylim0, intens)
+                axs[0, 0].text(0.77, 0.85, f'Acq Type: {inf.LevPP.upper()}', rotation=0, fontsize='xx-small',
+                               transform=axs[0, 0].transAxes, ha='left')
+                axs[0, 0].text(0.77, 0.75, f'Rt: {np.round(inf.Rt, 2)} s ({inf.Id})', rotation=0, fontsize='xx-small',
+                               transform=axs[0, 0].transAxes, ha='left')
+                axs[0, 0].text(0.77, 0.65, f'Collision E: {inf.Collision_Energy_Act} eV', rotation=0, fontsize='xx-small',
+                               transform=axs[0, 0].transAxes, ha='left')
+                axs[0, 0].text(0.77, 0.55, f'Parent: {inf.Parent}', rotation=0, fontsize='xx-small',
+                               transform=axs[0, 0].transAxes, ha='left')
+                axs[0, 0].text(0.77, 0.45, f'Isolation mass: {inf.MSMS_IsolationMass_Act}', rotation=0, fontsize='xx-small',
+                               transform=axs[0, 0].transAxes, ha='left')
+                axs[0, 0].text(0.77, 0.35, f'IM Res: {inf.Quadrupole_IsolationResolution_Act}', rotation=0,
+                               fontsize='xx-small', transform=axs[0, 0].transAxes, ha='left')
+
+            d = (axs[1, 0].transData + axs[1, 0].transAxes.inverted()).transform((self.rtPlot, 100))
+            self.xind = axs[1, 0].scatter([d[0]], [-0.01], c='red', clip_on=False, marker='^', transform=axs[1, 0].transAxes)
+
+        Xsub = self.window_mz_rt(self.xrawd[self.ms0string], selection, allow_none=False)
+        noise_thres, vmi, vma = np.quantile(Xsub[2], q=[q_noise, 0, 1])
+        ibool = Xsub[2] > noise_thres
+        idc_above = np.where(ibool)[0]
+        idc_below = np.where(~ibool)[0]
+        cm = plt.cm.get_cmap('rainbow')
+        fig, axs = plt.subplots(2, 2, sharey='row', gridspec_kw={'width_ratios': [3, 1], 'height_ratios': [1.5, 3]})
+        axs[1, 1].text(1.05, 0, self.dpath, rotation=90, fontsize=4, transform=axs[1, 1].transAxes)
+        axs[1, 1].tick_params(axis='y', direction='in')
+        axs[1, 0].scatter(Xsub[3, idc_below], Xsub[1, idc_below], s=0.1, c='gray', alpha=0.5)
+        im = axs[1, 0].scatter(Xsub[3, idc_above], Xsub[1, idc_above], c=(Xsub[2, idc_above]), s=5, cmap=cm, norm=LogNorm(vmi, vma))
+        cbaxes = fig.add_axes([0.15, 0.44, 0.021, 0.1])
+        cb = fig.colorbar(mappable=im, cax=cbaxes, orientation='vertical',
+                          format=LogFormatterSciNotation(base=10, labelOnlyBase=False))
+        cb.ax.tick_params(labelsize='xx-small')
+        fig.subplots_adjust(wspace=0.05)
+        axs[1, 0].callbacks.connect('ylim_changed', on_lims_change)
+        axs[1, 0].callbacks.connect('ylim_changed', on_lims_change)
+        cid = fig.canvas.mpl_connect('key_press_event', on_key)
+
+        self.rtPlot = Xsub[3, np.argmax(Xsub[2])]
+        mz, intens, ylim0, inf = self.massSpectrumDIA(rt=self.rtPlot, scantype = self.ms1string, viz= False)
+        axs[0,0].vlines(mz, ylim0, intens)
+        axs[0,0].text(0.77, 0.85, f'Acq Type: {inf.LevPP.upper()}', rotation=0, fontsize='xx-small', transform=axs[0,0].transAxes, ha='left')
+        axs[0,0].text(0.77, 0.75, f'Rt: {inf.Rt} s ({inf.Id})', rotation=0, fontsize='xx-small', transform=axs[0,0].transAxes, ha='left')
+        axs[0,0].text(0.77, 0.65, f'Collision E: {inf.Collision_Energy_Act} eV', rotation=0, fontsize='xx-small', transform=axs[0,0].transAxes, ha='left')
+        axs[0,0].text(0.77, 0.55, f'Parent: {inf.Parent}', rotation=0, fontsize='xx-small', transform=axs[0,0].transAxes, ha='left')
+        axs[0, 0].text(0.77, 0.45, f'Isolation mass: {inf.MSMS_IsolationMass_Act}', rotation=0, fontsize='xx-small', transform=axs[0, 0].transAxes, ha='left')
+        axs[0, 0].text(0.77, 0.35, f'IM Res: {inf.Quadrupole_IsolationResolution_Act}', rotation=0, fontsize='xx-small', transform=axs[0, 0].transAxes, ha='left')
+
+        axs[0,1].set_axis_off()
+
+        axs[0,0].xaxis.set_label_text(r"$\bfm/z$")
+        axs[1,0].set_xlabel(r"$\bfScan time$ [sec]")
+        axs[1,0].yaxis.set_label_text(r"$\bfm/z$")
+
+        d = (axs[1, 0].transData + axs[1, 0].transAxes.inverted()).transform((self.rtPlot, 100))
+        self.xind = axs[1, 0].scatter([d[0]], [-0.01], c='red', clip_on=False, marker='^', transform=axs[1, 0].transAxes)
+        fig.subplots_adjust(wspace=0.05, hspace=0.3)
+
+
+
+
+
+
     @log
-    def plt_chromatogram(self, tmin:float=None, tmax:float=None, ctype:list =['tic', 'bpc', 'xic'], xic_mz:float =[], xic_ppm:float=10):
-
-        df_l1 = self.df[self.df['LevPP'] == 'fs']
+    def chromg(self, tmin:float=None, tmax:float=None, ctype:list =['tic', 'bpc', 'xic'], xic_mz:float =[], xic_ppm:float=10):
+        df_l1 = self.dfd[self.ms0string]
         if df_l1.shape[0] == 0: raise ValueError('mslevel 1 in df does not exist or is not defined')
-
         xic = False
         tic = False
         bpc = False
-
         if not isinstance(ctype, list):
             ctype=[ctype]
         if any([x in 'xic' for x in ctype]):
@@ -1103,10 +1156,8 @@ class MSexp(Fdet, MSstat):
             bpc = True
         if any([x in 'tic' for x in ctype]):
             tic = True
-
         if ((xic == False) & (tic == False) & (bpc == False)):
             raise ValueError('ctype error: define chromatogram type(s) as tic, bpc or xic (string or list of strings).')
-
         if isinstance(tmin, type(None)):
             tmin = df_l1.Rt.min()
         if isinstance(tmax, type(None)):
@@ -1128,23 +1179,12 @@ class MSexp(Fdet, MSstat):
         ax2 = ax1.twiny()
         ax1.yaxis.offsetText.set_visible(False)
         if offset != '': ax1.yaxis.set_label_text(r"$\bfInt/count$ ($x 10^" + offset.replace('1e', '') + '$)')
-
-        def tick_conv(X):
-            V = X / 60
-            return ["%.2f" % z for z in V]
-
-        print(len(ax1.get_xticks()))
-        # tick_loc = np.linspace(np.round(tmin/60), np.round(tmax/60),
-        #                        (round(np.round((tmax - tmin) / 60, 0) / 2) + 1)) * 60
         tick_loc = np.arange(np.round(tmin/60), np.round(tmax/60), 2, dtype=float) * 60
         ax2.set_xlim(ax1.get_xlim())
         ax2.set_xticks(tick_loc)
-        ax2.set_xticklabels(tick_conv(tick_loc))
+        ax2.set_xticklabels(self.tick_conv(tick_loc))
         ax2.set_xlabel(r"$\bfScantime (min)$")
-        # ax2.yaxis.set_label_text(r"$Int/count$ " + offset)
-
         ax1.legend(loc='best', bbox_to_anchor=(0.5, 0.5, 0.5, 0.5))
-
         fig.show()
         return fig, ax1, ax2
 
@@ -1158,17 +1198,17 @@ class MSexp(Fdet, MSstat):
     def xic(self, mz:float, ppm:float, rt_min:float=None, rt_max:float=None):
         mz_min, mz_max = self.d_ppm(mz, ppm)
 
-        idx_mz = np.where((self.Xraw[:, 1] >= mz_min) & (self.Xraw[:, 1] <= mz_max))[0]
+        idx_mz = np.where((self.xrawd[self.ms0string][1] >= mz_min) & (self.xrawd[self.ms0string] <= mz_max))[0]
         if len(idx_mz) < 0:
             raise ValueError('mz range not found')
 
-        X_mz = self.Xraw[idx_mz, :]
+        X_mz = self.xrawd[self.ms0string][..., idx_mz]
 
-        sid = np.array(np.unique(X_mz[:, 0]).astype(int))
-        xic = np.zeros(int(np.max(self.Xraw[:, 0])+1))
+        sid = np.array(np.unique(X_mz[0]).astype(int))
+        xic = np.zeros(int(np.max(self.xrawd[self.ms0string][0])+1))
         for i in sid:
             xic[i-1] = np.sum(X_mz[np.where(X_mz[:,0] == i), 2])
-        stime = np.sort(np.unique(self.Xraw[:,3]))
+        stime = np.sort(np.unique(self.xrawd[self.ms0string][3]))
 
         if (~isinstance(rt_min, type(None)) | ~isinstance(rt_max, type(None))):
             idx_rt = np.where((stime >= rt_min) & (stime <= rt_max))[0]
