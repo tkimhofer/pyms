@@ -41,15 +41,13 @@ class list_exp:
             mtime.append(inf.st_mtime)
             fsize.append(inf.st_size)
 
-        self.df = pd.DataFrame({'exp':self.files, 'fsize_mb': fsize, 'mtime': mtime})
+        self.df = pd.DataFrame({'exp': self.files, 'fsize_mb': fsize, 'mtime': mtime})
         self.df['fsize_mb'] = fsize
         self.df['fsize_mb'] = self.df['fsize_mb'].values / 1000 ** 2
         self.df['mtime'] = mtime
         mtime_max, mtime_min = (np.argmax(self.df['mtime'].values), np.argmin(self.df['mtime'].values))
         fsize_mb_max, fsize_mb_min = (np.argmax(self.df['fsize_mb'].values), np.argmin(self.df['fsize_mb'].values))
         self.df['mtime'] = pd.to_datetime(self.df['mtime'], unit='s').dt.floor('T')
-
-        # self.df.exp.str.split('/')
 
         self.df.exp = [os.path.relpath(self.df.exp.values[x], path) for x in range(len(self.df.exp.values))]
         self.files =  self.df.exp.values

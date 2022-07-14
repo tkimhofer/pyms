@@ -1,5 +1,7 @@
 import msmate as ms
 
+
+ms.ch
 # conversion of proprietary format to mzml
 # msconvert data/* -o my_output_dir/
 
