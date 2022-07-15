@@ -1,2 +1,2 @@
-from ._reading import list_exp, msExp, ExpSet
+from ._reading import ReadB, ReadM, MsExp
 from ._isoPattern import element_list, calc_mzIsotopes

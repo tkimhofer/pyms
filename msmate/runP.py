@@ -278,10 +278,10 @@ class MSstat:
         self.Xsignal = self.Xsignal[self.Xsignal[...,2]> self.get_ecdfInt(0.99)]
         if plot:
             axs[1].scatter(self.Xsignal[...,3], self.Xsignal[...,1], s=0.5, c=np.log(self.Xsignal[...,2]))
-    def scans_sec(self):
-        asps = 1/((self.scantime.max() - self.scantime.min())/self.summary.nSc.iloc[0]) # hz
-        ii = np.diff(np.unique(self.scantime))
-        self.summary = pd.concat([self.summary, pd.DataFrame({'ScansPerSecAver': asps, 'ScansPerSecMin': 1/ii.max(), 'ScansPerSecMax': 1/ii.min()}, index=[0])], axis=1)
+    # def scans_sec(self):
+    #     asps = 1/((self.scantime.max() - self.scantime.min())/self.summary.nSc.iloc[0]) # hz
+    #     ii = np.diff(np.unique(self.scantime))
+    #     self.summary = pd.concat([self.summary, pd.DataFrame({'ScansPerSecAver': asps, 'ScansPerSecMin': 1/ii.max(), 'ScansPerSecMax': 1/ii.min()}, index=[0])], axis=1)
 
 @log
 @typechecked
