@@ -26,6 +26,7 @@ from scipy.signal import find_peaks, peak_prominences
 from scipy import integrate
 import platform
 import psutil
+from typing import Union
 
 from msmate.impMzf import collect_spectra_chrom, get_obo, children, node_attr_recurse
 
