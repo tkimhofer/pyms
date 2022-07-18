@@ -34,6 +34,8 @@ from typing import Union
 
 from msmate.impMzf import collect_spectra_chrom, get_obo, children, node_attr_recurse
 
+# from abc import ABCMeta
+
 
 __all__ = ['ReadB',
            'ReadM',
@@ -58,8 +60,27 @@ def log(f):
             logger.exception(f'{f.__name__}: {repr(e)}')
     return wr
 
+
+import inspect
+def logIA(f):
+    @functools.wraps(f)
+    def wr(*args, **kwargs):
+        try:
+            print(f.__dict__)
+            func_args = inspect.signature(f).bind(*args, **kwargs).arguments
+            func_args_str = ", ".join(map("{0[0]} = {0[1]!r}".format, func_args.items()))
+            logger.info(f"{f.__qualname__} ({func_args_str})")
+            out = f(*args, **kwargs)
+            logger.info(f'done {f.__name__}')
+            return out
+
+        except Exception as e:
+            logger.exception(f'{f.__name__}: {repr(e)}')
+    return wr
+
+@logIA
 @typechecked
-class ReadB:
+class ReadB():
     """Import of XC-MS level 1 scan data from raw Bruker or msmate data format (.d or binary `.p`, respectively)
 
     Note that this class is designed for use with `MsExp`.
@@ -253,8 +274,9 @@ class ReadB:
         else:
             return Xr[..., idx]
 
+@logIA
 @typechecked
-class ReadM:
+class ReadM():
     """Import of XC-MS level 1 scan data from mzML files V1.1.0
 
     Note that this class is designed for use with `MsExp`.
@@ -1099,6 +1121,7 @@ class Fdet:
         self.l3Df['isot'] = isop
         self.l3Df = self.l3Df.sort_values('isot', ascending=True)
 
+
 @typechecked
 class MsExp(MSstat, Fdet):
     """Class representing single experiment XC-MS data.
@@ -1107,26 +1130,32 @@ class MsExp(MSstat, Fdet):
     """
     @classmethod
     def mzml(cls, fpath:str, mslev:str='1'):
+        # cls.__name__ = 'mzml from file import'
         da = ReadM(fpath, mslev)
         return cls(dpath=da.fpath, fname=da.fpath, mslevel=da.mslevel, ms0string=da.ms0string, ms1string=da.ms1string,
-                   xrawd=da.xrawd, dfd=da.dfd, summary=None)
+                   xrawd=da.xrawd, dfd=da.dfd, summary=False)
 
     @classmethod
     def bruker(cls, dpath: str, convert: bool = True, docker: dict = {'repo': 'convo:v1', 'mslevel': 0, 'smode': [0, 1, 2, 3, 4, 5], 'amode': 2, 'seg': [0, 1, 2, 3], }):
+        # cls.__name__ = 'mzml from bruker directory'
         da = ReadB(dpath, convert, docker)
         return cls(dpath = da.dpath, fname=da.fname, mslevel=da.mslevel, ms0string=da.ms0string, ms1string=da.ms1string, xrawd=da.xrawd, dfd=da.dfd, summary=da.summary)
 
     @classmethod
-    def rM(cls, da):
+    def rM(cls, da:ReadM):
+        # cls.__name__ = 'data import from msmate ReadM'
         return cls(dpath=da.fpath, fname=da.fpath, mslevel=da.mslevel, ms0string=da.ms0string, ms1string=da.ms1string,
-                   xrawd=da.xrawd, dfd=da.dfd, summary=None)
+                   xrawd=da.xrawd, dfd=da.dfd, summary=False)
 
     @classmethod
-    def rB(cls,da):
+    def rB(cls, da:ReadB):
+        # cls.__name__ = 'data import from msmate ReadB'
         return cls(dpath=da.dpath, fname=da.fname, mslevel=da.mslevel, ms0string=da.ms0string, ms1string=da.ms1string,
                    xrawd=da.xrawd, dfd=da.dfd, summary=da.summary)
 
-    def __init__(self, dpath, fname, mslevel, ms0string, ms1string, xrawd, dfd, summary):
+
+    @logIA
+    def __init__(self, dpath:str, fname:str, mslevel:str, ms0string:str, ms1string:Union[str, None], xrawd:dict, dfd:dict, summary:bool):
         self.mslevel = mslevel
         self.dpath = dpath
         self.fname = fname
@@ -1138,7 +1167,7 @@ class MsExp(MSstat, Fdet):
         # self.df
         self.summary = summary
 
-    # @log
+    @log
     @staticmethod
     def _window_mz_rt(Xr: np.ndarray, selection: dict = {'mz_min': None, 'mz_max': None, 'rt_min': None, 'rt_max': None},
                      allow_none: bool = False, return_idc: bool = False):
@@ -1176,12 +1205,14 @@ class MsExp(MSstat, Fdet):
         else:
             return Xr[..., idx]
 
+    @log
     @staticmethod
     def _tick_conv(X):
         """Conversion time dimension from seconds to minutes."""
         V = X / 60
         return ["%.2f" % z for z in V]
 
+    @log
     def _noiseT(self, p, X=None, local=True):
         """Calculation of a noise intensity threshold using all data points or windowed data points."""
         if local:
@@ -1194,7 +1225,7 @@ class MsExp(MSstat, Fdet):
         idc_below = np.where(~idxN)[0]
         return (idc_below, idc_above)
 
-    # @log
+    @log
     @staticmethod
     def _get_density(X: np.ndarray, bw: float, q_noise: float = 0.5):
         """Calculation of m/z dimension kernel density"""
@@ -1207,7 +1238,7 @@ class MsExp(MSstat, Fdet):
         log_dens = np.exp(kde.score_samples(b[:, np.newaxis]))
         return (b, log_dens / np.max(log_dens))
 
-    # @log
+    @log
     def vizd(self, q_noise: float = 0.50,
              selection: dict = {'mz_min': None, 'mz_max': None, 'rt_min': None, 'rt_max': None},
              qcm_local: bool = True):
@@ -1275,7 +1306,7 @@ class MsExp(MSstat, Fdet):
         fig.show()
         return (fig, axs)
 
-    # @log
+    @logIA
     def viz(self, q_noise: float = 0.89,
             selection: dict = {'mz_min': None, 'mz_max': None, 'rt_min': None, 'rt_max': None}, qcm_local: bool = True):
         # viz 2D
@@ -1308,6 +1339,7 @@ class MsExp(MSstat, Fdet):
         fig.show()
         return (fig, ax)
 
+    @log
     def _massSpectrumDIA(self, rt: float = 150., scantype: str = '0_2_2_5_20.0', viz: bool = False):
         df = self.dfd[scantype]
         idx = np.argmin(np.abs(df.Rt - rt))
@@ -1327,7 +1359,7 @@ class MsExp(MSstat, Fdet):
             return (f, ax)
         else:
             return (sub[1], sub[2], np.zeros_like(sub[0]), inf)
-
+    @logIA
     def ms2L(self, q_noise, selection, qcm_local: bool = True):
         mpl.rcParams['keymap.back'].remove('left') if ('left' in mpl.rcParams['keymap.back']) else None
 
@@ -1442,7 +1474,7 @@ class MsExp(MSstat, Fdet):
                                       transform=axs[1, 0].transAxes)
         fig.subplots_adjust(wspace=0.05, hspace=0.3)
 
-    # @log
+    @logIA
     def chromg(self, tmin: float = None, tmax: float = None, ctype: list = ['tic', 'bpc', 'xic'], xic_mz: float = [],
                xic_ppm: float = 10):
         df_l1 = self.dfd[self.ms0string]
@@ -1490,12 +1522,12 @@ class MsExp(MSstat, Fdet):
         fig.show()
         return fig, ax1, ax2
 
-    # @log
+    @log
     def _d_ppm(self, mz: float, ppm: float):
         d = (ppm * mz) / 1e6
         return mz - (d / 2), mz + (d / 2)
 
-    # @log
+    @log
     def _xic(self, mz: float, ppm: float, rt_min: float = None, rt_max: float = None):
         mz_min, mz_max = self._d_ppm(mz, ppm)
 
@@ -1520,6 +1552,7 @@ class MsExp(MSstat, Fdet):
 
         return (stime, xic)
 
+    @log
     @staticmethod
     def _fwhmBound(intens, st, rtDelta=1 - 0.4):
         idxImax = np.argmax(intens)
@@ -1537,6 +1570,7 @@ class MsExp(MSstat, Fdet):
 
         return (ul1, ll1)
 
+    @log
     def igr(self):
         self._l3toDf()
         au = self.l3Df
@@ -1570,9 +1604,6 @@ class MsExp(MSstat, Fdet):
             fset = fset - set(sub1.index.values)
 
         return pd.concat(fgr)  # candidate isotopologues
-
-
-
 
 
 # class list_exp:
