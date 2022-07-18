@@ -1,19 +1,23 @@
+
+# msmate, v2.0.1
+# author: T Kimhofer
+# Murdoch University, July 2022
+
+# dependency import
+from typeguard import typechecked
 import pandas as pd
 import numpy as np
 import re
 import xml.etree.cElementTree as ET
-import obonet as obo
 import os
 import docker as dock
 import time
 import pickle
-import base64
-import zlib
 import functools
 import logging
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+# from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from matplotlib.backend_bases import MouseButton
 from matplotlib.patches import Rectangle
 from matplotlib.widgets import RectangleSelector
@@ -31,9 +35,16 @@ from typing import Union
 from msmate.impMzf import collect_spectra_chrom, get_obo, children, node_attr_recurse
 
 
+__all__ = ['ReadB',
+           'ReadM',
+           'MsExp',]
+
+
+
 logging.basicConfig(level=logging.DEBUG, filename='msmate.log', encoding='utf-8', format='%(asctime)s %(levelname)s %(name)s %(message)s', filemode='w')
 logger = logging.getLogger(__name__)
 logger.debug(f'{[os.cpu_count(), platform.uname(), psutil.net_if_addrs(), psutil.users()]}')
+
 
 def log(f):
     @functools.wraps(f)
@@ -47,12 +58,17 @@ def log(f):
             logger.exception(f'{f.__name__}: {repr(e)}')
     return wr
 
-
-
-
-
-
+@typechecked
 class ReadB:
+    """Import of XC-MS level 1 scan data from raw Bruker or msmate data format (.d or binary `.p`, respectively)
+
+    Note that this class is designed for use with `MsExp`.
+
+    Args:
+        dpath: Path `string` variable pointing to Bruker experiment folder (.d)
+        convert: `Bool` indicating if conversion should take place using docker container inf `.p` is not present
+        docker: `dict` with docker information: `{'repo': 'convo:v1', 'mslevel': 0, 'smode': [0, 1, 2, 3, 4, 5], 'amode': 2, 'seg': [0, 1, 2, 3], }`
+    """
     def __init__(self, dpath: str, convert: bool = True,
                  docker: dict = {'repo': 'convo:v1', 'mslevel': 0, 'smode': [0, 1, 2, 3, 4, 5], 'amode': 2,
                                  'seg': [0, 1, 2, 3], }):
@@ -237,23 +253,42 @@ class ReadB:
         else:
             return Xr[..., idx]
 
+@typechecked
 class ReadM:
-    def __init__(self, fpath: str, mslev:str='1', print_summary:bool=False):
+    """Import of XC-MS level 1 scan data from mzML files V1.1.0
+
+    Note that this class is designed for use with `MsExp`.
+
+    Args:
+        fpath: Path `string` variable pointing to mzML file
+        mslev: `String` defining ms level read-in (fulls can)
+    """
+
+    def __init__(self, fpath: str, mslev:str='1'):
         self.fpath = fpath
         if mslev != '1':
             raise ValueError('Check mslev argument - This function currently support ms level 1 import only.')
         self.mslevel = mslev
-        self.print_summary = print_summary
-
-        # single level read
         self.read_mzml()
         self.createSpectMat()
         self.stime_conv()
-        self.ms0string = 'mzml_msl1'
-        self.ms1string = None
-
-        self.xrawd = {self.ms0string: self.Xraw}
-        self.dfd = {self.ms0string: self.df}
+        self.df['subsets'] = self.df.ms_level+self.df.scan_polarity
+        ids = np.unique(self.df.subsets, return_counts=True)
+        imax = np.argmax(ids[1])
+        if len(ids) > 1:
+            print(f'Experiment done with polarity switching! Selecting {ids[0][imax]} as default level 1 data set. Alter attribute `ms0string` to change polarity')
+            self.ms0string = ids[0][imax]
+            self.ms1string = None
+            self.xrawd = {}
+            self.dfd = {}
+            Xr = pd.DataFrame(self.Xraw.T)
+            Xr.index=self.Xraw[0]
+            for i, d in enumerate(ids[0]):
+                self.dfd.update({d: self.df[self.df.subsets == d]})
+                self.xrawd.update({d: Xr.loc[self.dfd[d]['index'].astype(int).values]})
+        else:
+            self.xrawd = {self.ms0string: self.Xraw}
+            self.dfd = {self.ms0string: self.df}
 
     def read_mzml(self):
         # this is for mzml version 1.1.0
@@ -298,16 +333,23 @@ class ReadM:
             ms.append((i, np.array(add)))
             sid_count += 1
 
-        self.Xraw = np.concatenate([x[1] for x in ms], axis=1)
-        self.Xraw = self.Xraw[[3, 0, 1, 2, 3]] #[sid, mz, intens, st, sid1]
+        Xraw = np.concatenate([x[1] for x in ms], axis=1)
+
+        self.Xraw = np.array([Xraw[2], Xraw[0], Xraw[1], Xraw[3], Xraw[2]])
+
+        # self.Xraw = Xraw[[3, 0, 1, 2, 3]].copy() #[sid, mz, intens, st, sid1]
 
 
         self.df = pd.DataFrame(meta, index=sc_msl1)
 
+        pscan = np.repeat('None', self.df.shape[0])
         if 'MS:1000129' in self.df.columns:
-            self.df['MS:1000129'] = 'N (-)'
+            pscan[self.df['MS:1000129'].values == True] = "N"
         if 'MS:1000130' in self.df.columns:
-            self.df['MS:1000130'] = 'P (+)'
+            pscan[self.df['MS:1000130'].values == True] = 'P'
+
+        self.df['scan_polarity'] = pscan
+
         if 'MS:1000127' in self.df.columns:
             add = np.repeat('centroided', self.df.shape[0])
             add[~(self.df['MS:1000127'] == True)] = 'profile'
@@ -319,7 +361,7 @@ class ReadM:
 
         self.df = self.df.rename(
             columns={'UO:0000010': 'time_unit', 'UO:0000031': 'time_unit', 'defaultArrayLength': 'n',
-                     'MS:1000129': 'scanPolarity', 'MS:1000130': 'scanPolarity',
+                     'MS:1000129': 'polNeg', 'MS:1000130': 'polPos',
                      'MS:1000127': 'specRepresentation', 'MS:1000128': 'specRepresentation',
                      'MS:1000505': 'MaxIntensity', 'MS:1000285': 'SumIntensity',
                      'MS:1000016': 'Rt'
@@ -330,11 +372,19 @@ class ReadM:
 
     def stime_conv(self):
         self.df['Rt'] = self.df['Rt'].astype(float)
-        if 'min' in self.df['time_unit']:
+        if 'min' in self.df['time_unit'].iloc[1]:
             self.df['Rt']=self.df['Rt']*60
             self.df['time_unit'] = 'sec'
+            self.Xraw[3] = self.Xraw[3] * 60
 
+
+@typechecked
 class MSstat:
+    """ Base class defining statistical functions operating on 2D MS data
+
+    Note that this class is designed for use with `MsExp`.
+    """
+
     def ecdf(self, plot:bool = False):
         # a is the data array
         self.ecdf_x = np.sort(self.Xraw[...,2])
@@ -378,7 +428,12 @@ class MSstat:
     #     ii = np.diff(np.unique(self.scantime))
     #     self.summary = pd.concat([self.summary, pd.DataFrame({'ScansPerSecAver': asps, 'ScansPerSecMin': 1/ii.max(), 'ScansPerSecMax': 1/ii.min()}, index=[0])], axis=1)
 
+@typechecked
 class Fdet:
+    """ Base class defining feature detection functions operating on 2D MS data
+
+    Note that this class is designed for use with `MsExp`.
+    """
     @log
     def getScaling(self, **kwargs):
         def line_select_callback(eclick, erelease):
@@ -1023,6 +1078,8 @@ class Fdet:
             out =  pd.concat((descr[[ 'rt_maxI', 'mz_maxI', 'rt_min', 'rt_max', 'npeaks']], qc[['ppm', 'sino']], quant['smbl']), axis=1)
             out.index = descr['id']
             self.l3Df = out.sort_values(['rt_maxI', 'mz_maxI', 'smbl'], ascending=True)
+            print()
+
         else:
             print('No L3 feat')
 
@@ -1042,78 +1099,21 @@ class Fdet:
         self.l3Df['isot'] = isop
         self.l3Df = self.l3Df.sort_values('isot', ascending=True)
 
-
-
-
-
+@typechecked
 class MsExp(MSstat, Fdet):
+    """Class representing single experiment XC-MS data.
 
-
+    Methods include read-in, feature detection and visualisation of chromatogram, ms scan and chromatographic vs ms dimension
+    """
     @classmethod
-    def mzml(cls, fpath:str, mslev:str='1', print_summary: bool = True):
-        # read mzml files and instatiate class with read in variabels
-        # fpath, mslev = '1', print_summary = False
-        da = ReadM(fpath, mslev, print_summary)
-        #generate the following variables
-        # self.mslevel = mslev
-        # self.dpath = dpath
-        # self.fname = fname
-        #
-        # self.ms0string = ms0string
-        # self.ms1string = ms1string
-        # self.xrawd = xrawd  # usage: self.xrawd[self.ms0string]
-        # self.dfd = dfd  # usage: self.dfd[scantype], scantype eg., '0_2_2_5_20.0'
-        # # self.df
-        # self.summary = summary
-
-
-
+    def mzml(cls, fpath:str, mslev:str='1'):
+        da = ReadM(fpath, mslev)
         return cls(dpath=da.fpath, fname=da.fpath, mslevel=da.mslevel, ms0string=da.ms0string, ms1string=da.ms1string,
                    xrawd=da.xrawd, dfd=da.dfd, summary=None)
-
-        # mzml read-in vars
-        #
-        # __init__
-        # self.fpath
-        #
-        # read_exp___
-        # self.flag  # mslevel
-        # self.dstype
-        # self.df
-        # self.scantime
-        # self.I
-        # self.scantime
-        # self.summary
-        # self.nd
-        # self.Xraw
-        #
-        # self.fs
-        # self.df
 
     @classmethod
     def bruker(cls, dpath: str, convert: bool = True, docker: dict = {'repo': 'convo:v1', 'mslevel': 0, 'smode': [0, 1, 2, 3, 4, 5], 'amode': 2, 'seg': [0, 1, 2, 3], }):
         da = ReadB(dpath, convert, docker)
-        # __init__
-        # self.mslevel
-        # self.smode
-        # self.docker
-        # self.dpath
-        # self.dbfile
-        # self.fname
-        # self.msmfile
-        #
-        # self.msZeroPP___
-        # self.ms0string
-        # self.ms1string
-        #
-        # rawd___
-        # self.xrawd
-        # self.dfd
-        #
-        # self.read_mm8___
-        # self.df
-        # self.summary
-
         return cls(dpath = da.dpath, fname=da.fname, mslevel=da.mslevel, ms0string=da.ms0string, ms1string=da.ms1string, xrawd=da.xrawd, dfd=da.dfd, summary=da.summary)
 
     @classmethod
@@ -1125,7 +1125,6 @@ class MsExp(MSstat, Fdet):
     def rB(cls,da):
         return cls(dpath=da.dpath, fname=da.fname, mslevel=da.mslevel, ms0string=da.ms0string, ms1string=da.ms1string,
                    xrawd=da.xrawd, dfd=da.dfd, summary=da.summary)
-
 
     def __init__(self, dpath, fname, mslevel, ms0string, ms1string, xrawd, dfd, summary):
         self.mslevel = mslevel
@@ -1139,12 +1138,11 @@ class MsExp(MSstat, Fdet):
         # self.df
         self.summary = summary
 
-
-
     # @log
     @staticmethod
-    def window_mz_rt(Xr: np.ndarray, selection: dict = {'mz_min': None, 'mz_max': None, 'rt_min': None, 'rt_max': None},
+    def _window_mz_rt(Xr: np.ndarray, selection: dict = {'mz_min': None, 'mz_max': None, 'rt_min': None, 'rt_max': None},
                      allow_none: bool = False, return_idc: bool = False):
+        """2D filter function using retention/scan time and mz dimension."""
         part_none = any([x == None for x in selection.values()])
         all_fill = any([x != None for x in selection.values()])
         if not allow_none:
@@ -1179,11 +1177,13 @@ class MsExp(MSstat, Fdet):
             return Xr[..., idx]
 
     @staticmethod
-    def tick_conv(X):
+    def _tick_conv(X):
+        """Conversion time dimension from seconds to minutes."""
         V = X / 60
         return ["%.2f" % z for z in V]
 
     def _noiseT(self, p, X=None, local=True):
+        """Calculation of a noise intensity threshold using all data points or windowed data points."""
         if local:
             self.noise_thres = np.quantile(X, q=p)
         else:
@@ -1196,7 +1196,8 @@ class MsExp(MSstat, Fdet):
 
     # @log
     @staticmethod
-    def get_density(X: np.ndarray, bw: float, q_noise: float = 0.5):
+    def _get_density(X: np.ndarray, bw: float, q_noise: float = 0.5):
+        """Calculation of m/z dimension kernel density"""
         xmin = X[1].min()
         xmax = X[1].max()
         b = np.linspace(xmin, xmax, 500)
@@ -1210,13 +1211,28 @@ class MsExp(MSstat, Fdet):
     def vizd(self, q_noise: float = 0.50,
              selection: dict = {'mz_min': None, 'mz_max': None, 'rt_min': None, 'rt_max': None},
              qcm_local: bool = True):
-        # viz 2D with density
+        """Interactive visualisation of scantime vs m/z dimension, including an m/z density panel
+
+        Args:
+            q_noise: Quantile probability defining noise intensity threshold (`float`).
+            selection: `dict` of scantime (in seconds) and m/z window ranges
+            qcm_local: `bool` indicting if local quantile values should be calculated for intensity threshold and colouring
+        ### Usage:
+        The following example demonstrates the use of the vizd function:
+        ```python
+          import msmate as ms
+          d = ms.MsExp.bruker(msmate)
+
+          s1 = {'mz_min': 100, 'mz_max': 115, 'rt_min': 60, 'rt_max': 70}
+          d.vizd(q_noise=0.99, selection = s1, qcm_local=True)
+        ```
+        """
         # @log
         def on_lims_change(event_ax: plt.axis):
             x1, x2 = event_ax.get_xlim()
             y1, y2 = event_ax.get_ylim()
             selection = {'mz_min': y1, 'mz_max': y2, 'rt_min': x1, 'rt_max': x2}
-            Xs = self.window_mz_rt(self.xrawd[self.ms0string], selection, allow_none=False)
+            Xs = self._window_mz_rt(self.xrawd[self.ms0string], selection, allow_none=False)
             # print(np.where(Xs[2] > self.noise_thres)[0])
             #Xs = Xs[:,Xs[2] > self.noise_thres]
             axs[1].clear()
@@ -1228,13 +1244,13 @@ class MsExp(MSstat, Fdet):
             if Xs.shape[0] >0:
                 bsMin = (y2 - y1) / 200 if ((y2 - y1) / 200) > 0.0001 else 0.0001
                 bw = bsMin
-                y, x = self.get_density(Xs, bw, q_noise=q_noise)
+                y, x = self._get_density(Xs, bw, q_noise=q_noise)
                 axs[1].plot(x, y, c='black')
                 axs[1].annotate(f'bw: {np.round(bw, 5)}\np: {np.round(q_noise, 3)}',
                                 xy=(1, y1 + np.min([0.1, float((y2 - y1) / 100)])), fontsize='xx-small', ha='right')
 
 
-        Xsub = self.window_mz_rt(self.xrawd[self.ms0string], selection, allow_none=False)
+        Xsub = self._window_mz_rt(self.xrawd[self.ms0string], selection, allow_none=False)
         idc_below, idc_above = self._noiseT(p=q_noise, X=Xsub, local=qcm_local)
         cm = plt.cm.get_cmap('rainbow')
         fig, axs = plt.subplots(1, 2, sharey=False, gridspec_kw={'width_ratios': [3, 1]})
@@ -1263,7 +1279,7 @@ class MsExp(MSstat, Fdet):
     def viz(self, q_noise: float = 0.89,
             selection: dict = {'mz_min': None, 'mz_max': None, 'rt_min': None, 'rt_max': None}, qcm_local: bool = True):
         # viz 2D
-        Xsub = self.window_mz_rt(self.xrawd[self.ms0string], selection, allow_none=False)
+        Xsub = self._window_mz_rt(self.xrawd[self.ms0string], selection, allow_none=False)
         idc_below, idc_above = self._noiseT(p=q_noise, X=Xsub, local=qcm_local)
         cm = plt.cm.get_cmap('rainbow')
         fig = plt.figure()
@@ -1286,15 +1302,13 @@ class MsExp(MSstat, Fdet):
         tick_loc = np.linspace(tmin / 60, tmax / 60, 5) * 60
         ax2.set_xlim(ax.get_xlim())
         ax2.set_xticks(tick_loc)
-        ax2.set_xticklabels(self.tick_conv(tick_loc))
+        ax2.set_xticklabels(self._tick_conv(tick_loc))
         ax2.set_xlabel(r"[min]")
         # fig.colorbar(im, ax=ax)
         fig.show()
         return (fig, ax)
 
-    def massSpectrumDIA(self, rt: float = 150., scantype: str = '0_2_2_5_20.0', viz: bool = False):
-        import matplotlib.pyplot as plt
-        import numpy as np
+    def _massSpectrumDIA(self, rt: float = 150., scantype: str = '0_2_2_5_20.0', viz: bool = False):
         df = self.dfd[scantype]
         idx = np.argmin(np.abs(df.Rt - rt))
         inf = df.iloc[idx]
@@ -1324,7 +1338,7 @@ class MsExp(MSstat, Fdet):
             Xs = self.window_mz_rt(self.xrawd[self.ms0string], selection, allow_none=False)
             bsMin = (y2 - y1) / 200 if ((y2 - y1) / 200) > 0.0001 else 0.0001
             bw = bsMin
-            y, x = self.get_density(Xs, bw, q_noise=q_noise)
+            y, x = self._get_density(Xs, bw, q_noise=q_noise)
             axs[1, 1].clear()
             axs[1, 1].set_ylim([y1, y2])
             axs[1, 1].plot(x, y, c='black')
@@ -1343,14 +1357,14 @@ class MsExp(MSstat, Fdet):
             if event_ax.key == 'f':
                 self.rtPlot = event_ax.xdata
                 axs[0, 0].clear()
-                mz, intens, ylim0, inf = self.massSpectrumDIA(rt=self.rtPlot, scantype=self.ms1string, viz=False)
+                mz, intens, ylim0, inf = self._massSpectrumDIA(rt=self.rtPlot, scantype=self.ms1string, viz=False)
 
             if event_ax.key == 'right':
                 self.rtPlot = self.dfd[self.ms1string].iloc[
                     np.argmin(np.abs(self.rtPlot - self.dfd[self.ms1string].Rt)) + 1].Rt
                 xl = axs[0, 0].get_xlim()
                 axs[0, 0].clear()
-                mz, intens, ylim0, inf = self.massSpectrumDIA(rt=self.rtPlot, scantype=self.ms1string, viz=False)
+                mz, intens, ylim0, inf = self._massSpectrumDIA(rt=self.rtPlot, scantype=self.ms1string, viz=False)
                 axs[0, 0].set_xlim(xl)
 
             if event_ax.key == 'left':
@@ -1358,7 +1372,7 @@ class MsExp(MSstat, Fdet):
                     np.argmin(np.abs(self.rtPlot - self.dfd[self.ms1string].Rt)) - 1].Rt
                 xl = axs[0, 0].get_xlim()
                 axs[0, 0].clear()
-                mz, intens, ylim0, inf = self.massSpectrumDIA(rt=self.rtPlot, scantype=self.ms1string, viz=False)
+                mz, intens, ylim0, inf = self._massSpectrumDIA(rt=self.rtPlot, scantype=self.ms1string, viz=False)
                 axs[0, 0].set_xlim(xl)
 
             axs[0, 0].vlines(mz, ylim0, intens)
@@ -1381,7 +1395,7 @@ class MsExp(MSstat, Fdet):
             self.xind = axs[1, 0].scatter([d[0]], [-0.01], c='red', clip_on=False, marker='^',
                                           transform=axs[1, 0].transAxes)
 
-        Xsub = self.window_mz_rt(self.xrawd[self.ms0string], selection, allow_none=False)
+        Xsub = self._window_mz_rt(self.xrawd[self.ms0string], selection, allow_none=False)
         idc_below, idc_above = self._noiseT(p=q_noise, X=Xsub, local=qcm_local)
 
         cm = plt.cm.get_cmap('rainbow')
@@ -1401,7 +1415,7 @@ class MsExp(MSstat, Fdet):
         cid = fig.canvas.mpl_connect('key_press_event', on_key)
 
         self.rtPlot = Xsub[3, np.argmax(Xsub[2])]
-        mz, intens, ylim0, inf = self.massSpectrumDIA(rt=self.rtPlot, scantype=self.ms1string, viz=False)
+        mz, intens, ylim0, inf = self._massSpectrumDIA(rt=self.rtPlot, scantype=self.ms1string, viz=False)
         # self.intensmax = np.max(intens)
         axs[0, 0].vlines(mz, ylim0, intens)
         axs[0, 0].text(0.75, 0.85, f'Acq Type: {inf.LevPP.uppder() if inf.LevPP is not None else "-"}', rotation=0,
@@ -1453,7 +1467,7 @@ class MsExp(MSstat, Fdet):
         fig = plt.figure()
         ax1 = fig.add_subplot(111)
         if xic:
-            xx, xy = self.xic(xic_mz, xic_ppm, rt_min=tmin, rt_max=tmax)
+            xx, xy = self._xic(xic_mz, xic_ppm, rt_min=tmin, rt_max=tmax)
             ax1.plot(xx, xy.astype(float), label='XIC ' + str(xic_mz) + 'm/z')
         if tic:
             ax1.plot(df_l1.Rt, df_l1.SumIntensity.astype(float), label='TIC')
@@ -1470,20 +1484,20 @@ class MsExp(MSstat, Fdet):
         tick_loc = np.arange(np.round(tmin / 60), np.round(tmax / 60), 2, dtype=float) * 60
         ax2.set_xlim(ax1.get_xlim())
         ax2.set_xticks(tick_loc)
-        ax2.set_xticklabels(self.tick_conv(tick_loc))
+        ax2.set_xticklabels(self._tick_conv(tick_loc))
         ax2.set_xlabel(r"$\bfScantime (min)$")
         ax1.legend(loc='best', bbox_to_anchor=(0.5, 0.5, 0.5, 0.5))
         fig.show()
         return fig, ax1, ax2
 
     # @log
-    def d_ppm(self, mz: float, ppm: float):
+    def _d_ppm(self, mz: float, ppm: float):
         d = (ppm * mz) / 1e6
         return mz - (d / 2), mz + (d / 2)
 
     # @log
-    def xic(self, mz: float, ppm: float, rt_min: float = None, rt_max: float = None):
-        mz_min, mz_max = self.d_ppm(mz, ppm)
+    def _xic(self, mz: float, ppm: float, rt_min: float = None, rt_max: float = None):
+        mz_min, mz_max = self._d_ppm(mz, ppm)
 
         idx_mz = np.where((self.xrawd[self.ms0string][1] >= mz_min) & (self.xrawd[self.ms0string] <= mz_max))[0]
         if len(idx_mz) < 0:
@@ -1507,7 +1521,7 @@ class MsExp(MSstat, Fdet):
         return (stime, xic)
 
     @staticmethod
-    def fwhmBound(intens, st, rtDelta=1 - 0.4):
+    def _fwhmBound(intens, st, rtDelta=1 - 0.4):
         idxImax = np.argmax(intens)
         ifwhm = intens[idxImax] / 2
 
@@ -1524,7 +1538,7 @@ class MsExp(MSstat, Fdet):
         return (ul1, ll1)
 
     def igr(self):
-        self.l3toDf()
+        self._l3toDf()
         au = self.l3Df
         rtd = 0.6  # fwhm proportion
         fset = set(au.index.values)
@@ -1533,7 +1547,7 @@ class MsExp(MSstat, Fdet):
         for i in fset:
             intens = self.feat[i]['fdata']['I_sm_bline']
             st = self.feat[i]['fdata']['st_sm']
-            out = self.fwhmBound(intens, st, rtDelta=rtd)
+            out = self._fwhmBound(intens, st, rtDelta=rtd)
 
             if out is None:
                 continue
@@ -1545,7 +1559,7 @@ class MsExp(MSstat, Fdet):
             sidx = sub.index[np.argmax(sub.smbl.values)]
             intens1 = self.feat[sidx]['fdata']['I_sm_bline']
             st1 = self.feat[sidx]['fdata']['st_sm']
-            out1 = self.fwhmBound(intens1, st1, rtDelta=rtd)
+            out1 = self._fwhmBound(intens1, st1, rtDelta=rtd)
             sub1 = au[(au.rt_maxI < out1[0]) & (au.rt_maxI > out1[1])].copy()
             sub1['fgr'] = c
             sub1 = sub1.sort_values('mz_maxI')

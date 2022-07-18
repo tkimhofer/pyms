@@ -1,4 +1,20 @@
 
+# msmate, v2.0.1
+# author: T Kimhofer
+# Murdoch University, July 2022
+
+# dependency import
+import base64
+import numpy as np
+import zlib
+import re
+import obonet
+from tqdm import tqdm
+import time
+import pandas as pd
+import subprocess
+import xml.etree.ElementTree as ET
+
 def rec_attrib(s, ii={}):
     # recursively collecting cvParam
     for at in list(s):
@@ -11,10 +27,6 @@ def rec_attrib(s, ii={}):
     return ii
 
 def extract_mass_spectrum_lev1(i, s_level, s_dic):
-    import base64
-    import numpy as np
-    import zlib
-
     s = s_level[i]
     iistart = s_dic[i]
     ii = rec_attrib(s, iistart)
@@ -44,7 +56,6 @@ def extract_mass_spectrum_lev1(i, s_level, s_dic):
     return (ii, mz, I)
 
 def collect_spectra_chrom(s, ii={}, d=9, c=0, flag='1', tag='', obos={}):
-    import re
     if c == d: return
     if (('chromatogram' == tag) | ('spectrum' == tag)):
         rtype = 'Ukwn'
@@ -84,7 +95,6 @@ def extr_spectrum_chromg(x, flag='1', rtype='s', obos=[]):
     return (add_meta, out)
 
 def data_recurse1(s, ii={}, d=9, c=0, ip='', obos=[]):
-    import re
     # recursively extracts attributes from node s and with depth  d, add label children iterator as prefix
     if c == d: return
     if ('binaryDataArray' == re.sub('\{.*\}', '', s.tag)):
@@ -103,7 +113,6 @@ def data_recurse1(s, ii={}, d=9, c=0, ip='', obos=[]):
     return ii
 
 def dt_co(dvars):
-    import numpy as np
     # dtype and compression
     dt = None  # data type
     co = None  # compression
@@ -142,9 +151,6 @@ def dt_co(dvars):
 
 def read_bin(k, obo_ids):
     # k is binary array
-    import numpy as np
-    import zlib
-    import base64
     # collect metadata
     dvars = vaPar_recurse(k, ii={}, d=3, c=0, dname='accession', dval='cvRef', ddt='-')
     dt, co, ft = dt_co(dvars)
@@ -190,7 +196,6 @@ def get_obo(obos, obo_ids={}):
     # download obo annotation data
     # create single dict with keys being of obo ids, eg, MS:1000500
     # obos is first cv element in mzml node
-    import obonet
     for o in obos:
         id=o.attrib['id']
         if id not in obo_ids.keys():
@@ -204,14 +209,11 @@ def get_obo(obos, obo_ids={}):
     return obo_ids
 
 def children(xr):
-    import re
     return [re.sub('\{.*\}', '', x.tag) for x in list(xr)]
 
 def exp_meta(root, ind, d):
     # combine attributes to dataframe with column names prefixed acc to child/parent relationship
     # remove web links in tags
-    import pandas as pd
-    import re
     filed = node_attr_recurse(s=root, d=d, c=0, ii=[])
 
     dn = {}
@@ -221,7 +223,6 @@ def exp_meta(root, ind, d):
     return pd.DataFrame(dn, index=[ind])
 
 def node_attr_recurse(s, ii=[], d=3, c=0,  pre=0):
-    import re
     # recursively extracts attributes from node s and with depth  d, add label children iterator as prefix
     if c == d: return
     # define ms level
@@ -239,9 +240,6 @@ def node_attr_recurse(s, ii=[], d=3, c=0,  pre=0):
     return ii
 
 def read_exp(path, ftype='mzML', plot_chrom=False, n_max=1000, only_summary=False, d=4):
-    import subprocess
-    import xml.etree.ElementTree as ET
-
     cmd = 'find ' + path + ' -type f -iname *'+ ftype
     sp = subprocess.getoutput(cmd)
     files = sp.split('\n')
@@ -268,7 +266,6 @@ def read_exp(path, ftype='mzML', plot_chrom=False, n_max=1000, only_summary=Fals
         df = pd.concat(df_summary).T
         return df
     else:
-
         data=[]
         df_summary = []
         print('Importing '+ str(len(files)) + ' files.')
@@ -283,10 +280,6 @@ def read_exp(path, ftype='mzML', plot_chrom=False, n_max=1000, only_summary=Fals
         return (df, data)
 
 def read_mzml_file(root, ms_lev=1, plot=True):
-    from tqdm import tqdm
-    import time
-    import numpy as np
-    import pandas as pd
     # file specific variables
     le = len(list(root[0]))-1
     id = root[0][le].attrib['id']
@@ -374,7 +367,6 @@ def read_mzml_file(root, ms_lev=1, plot=True):
     return (mz, I, df)
 
 def arraydtype(pars):
-    import numpy as np
     # determines base64 single or double precision, all in little endian
     pdic = {}
     for pp in pars:
