@@ -31,22 +31,18 @@ from scipy import integrate
 import platform
 import psutil
 from typing import Union
+import collections
+# import itertools
 
-from msmate.impMzf import collect_spectra_chrom, get_obo, children, node_attr_recurse
-
-# from abc import ABCMeta
-
+from msmate.helpers import _collect_spectra_chrom, _get_obo, _children, _node_attr_recurse
 
 __all__ = ['ReadB',
            'ReadM',
            'MsExp',]
 
-
-
-logging.basicConfig(level=logging.DEBUG, filename='msmate.log', encoding='utf-8', format='%(asctime)s %(levelname)s %(name)s %(message)s', filemode='w')
+logging.basicConfig(level=logging.DEBUG, stream=sys.stdout, filename='msmate.log', encoding='utf-8', format='%(asctime)s %(levelname)s %(name)s %(message)s', filemode='w')
 logger = logging.getLogger(__name__)
 logger.debug(f'{[os.cpu_count(), platform.uname(), psutil.net_if_addrs(), psutil.users()]}')
-
 
 def log(f):
     @functools.wraps(f)
@@ -60,39 +56,39 @@ def log(f):
             logger.exception(f'{f.__name__}: {repr(e)}')
     return wr
 
-
 import inspect
 def logIA(f):
     @functools.wraps(f)
     def wr(*args, **kwargs):
         try:
-            print(f.__dict__)
+            #print(f.__dict__)
             func_args = inspect.signature(f).bind(*args, **kwargs).arguments
             func_args_str = ", ".join(map("{0[0]} = {0[1]!r}".format, func_args.items()))
             logger.info(f"{f.__qualname__} ({func_args_str})")
             out = f(*args, **kwargs)
-            logger.info(f'done {f.__name__}')
+            #logger.info(f'done {f.__name__}')
             return out
 
         except Exception as e:
-            logger.exception(f'{f.__name__}: {repr(e)}')
+            logger.exception(f'{repr(e)}')
     return wr
 
-@logIA
+# @logIA
 @typechecked
 class ReadB():
-    """Import of XC-MS level 1 scan data from raw Bruker or msmate data format (.d or binary `.p`, respectively)
-
-    Note that this class is designed for use with `MsExp`.
-
-    Args:
-        dpath: Path `string` variable pointing to Bruker experiment folder (.d)
-        convert: `Bool` indicating if conversion should take place using docker container inf `.p` is not present
-        docker: `dict` with docker information: `{'repo': 'convo:v1', 'mslevel': 0, 'smode': [0, 1, 2, 3, 4, 5], 'amode': 2, 'seg': [0, 1, 2, 3], }`
-    """
+    """Bruker experiment class and import methods"""
     def __init__(self, dpath: str, convert: bool = True,
                  docker: dict = {'repo': 'convo:v1', 'mslevel': 0, 'smode': [0, 1, 2, 3, 4, 5], 'amode': 2,
                                  'seg': [0, 1, 2, 3], }):
+        """Import of XC-MS level 1 scan data from raw Bruker or msmate data format (.d or binary `.p`, respectively)
+
+           Note that this class is designed for use with `MsExp`.
+
+           Args:
+               dpath: Path `string` variable pointing to Bruker experiment folder (.d)
+               convert: `Bool` indicating if conversion should take place using docker container inf `.p` is not present
+               docker: `dict` with docker information: `{'repo': 'convo:v1', 'mslevel': 0, 'smode': [0, 1, 2, 3, 4, 5], 'amode': 2, 'seg': [0, 1, 2, 3], }`
+        """
         self.mslevel = str(docker['mslevel']) if not isinstance(docker['mslevel'], list) else tuple(
             map(str, np.unique(docker['mslevel'])))
         if len(self.mslevel) == 1:
@@ -114,16 +110,17 @@ class ReadB():
         self.msmfile = os.path.join(dpath,
                                     f'mm8v3_edata_msl{self.docker["mslevel"]}_sm{"".join(self.docker["smode"])}_am{self.docker["amode"]}_seg{"".join(self.docker["seg"])}.p')
         if os.path.exists(self.msmfile):
-            self.read_mm8()
+            self._read_mm8()
         else:
             if convert:
-                self.convoDocker()
-                self.read_mm8()
+                self._convoDocker()
+                self._read_mm8()
             else:
                 raise SystemError('d folder requries conversion, enable docker convo')
         # self.ecdf()
 
-    def convoDocker(self):
+    def _convoDocker(self):
+        """Convert Bruker 2D MS experiment data to msmate file/obj using a custom build Docker image"""
         t0 = time.time()
         client = dock.from_env()
         client.info()
@@ -138,7 +135,8 @@ class ReadB():
         t1 = time.time()
         print(f'Conversion time: {np.round(t1 - t0)} sec')
 
-    def msZeroPP(self):
+    def _msZeroPP(self):
+        """Identify MS acquisition/scan type and level"""
         if any((self.df.ScanMode == 2) & ~(self.df.MsLevel == 1)):  # dda
             raise ValueError('Check AcquisitionKeys for scan types - combo not encountered before')
 
@@ -166,7 +164,8 @@ class ReadB():
         add.loc[idx_ms0] = 'fs'
         self.df['LevPP'] = add
 
-    def rawd(self, ss):
+    def _rawd(self, ss):
+        """Organise raw MS data and scan metadata according to ms level and scan/acquisition type."""
         # create dict for each scantype
         xr = {i: {'Xraw': [], 'df': []} for i in self.df.stype.unique()}
         c = {i: 0 for i in self.df.stype.unique()}
@@ -183,7 +182,8 @@ class ReadB():
         self.xrawd = {i: np.concatenate(xr[i]['Xraw'], axis=1) for i in self.df.stype.unique()}
         self.dfd = {i: self.df[self.df.stype == i] for i in self.df.stype.unique()}
 
-    def read_mm8(self):
+    def _read_mm8(self):
+        """Import msmate data, determine scan/acquisition/mode types and create characteristic set of data objects"""
         ss = pickle.load(open(self.msmfile, 'rb'))
         self.df = pd.DataFrame(ss['sinfo'])
         # define ms level for viz and peak picking
@@ -196,26 +196,25 @@ class ReadB():
                 for x in ss['sinfo'] if x['Segment'] == 3]
             self.df['stype'] = add
 
-        self.msZeroPP()
-
+        self._msZeroPP()
         # create dict for each scantype and df
-        self.rawd(ss)
-
+        self._rawd(ss)
         polmap = {0: 'P', 1: 'N'}
         df1 = pd.DataFrame(
             [(polmap[x['Polarity']], str(x['MzAcqRangeLower']) + '-' + str(x['MzAcqRangeUpper']), x['MsLevel']) for x in
              ss['sinfo']], columns=['Polarity', 'MzAcqRange', 'MsLevel'])
-        df1 = pd.DataFrame([self.csummary(i, df1) for i in range(df1.shape[1])], index=df1.columns).transpose()
+        df1 = pd.DataFrame([self._csummary(i, df1) for i in range(df1.shape[1])], index=df1.columns).transpose()
         df1['nSc'] = len(ss['sinfo'])
         df2 = pd.DataFrame([(x['AcquisitionMode'], x['ScanMode'], x['Segment']) for x in ss['sinfo']],
                            columns=['AcqMode', 'ScMode', 'Segments'])
-        t = pd.DataFrame(df2.groupby(['Segments']).apply(lambda x: self.vc(x, n=df2.shape[0])))
+        t = pd.DataFrame(df2.groupby(['Segments']).apply(lambda x: self._vc(x, n=df2.shape[0])))
         t = t.rename(index={t.index[i]: 'Segment ' + str(t.index[i]) for i in range(t.shape[0])}).transpose()
         self.summary = pd.concat([df1, t], axis=1)
 
 
     @staticmethod
-    def csummary(i: int, df: pd.DataFrame):
+    def _csummary(i: int, df: pd.DataFrame):
+        """Summary function for scan metadata information."""
         if df.iloc[:, i].isnull().all():
             return None
         s = np.unique(df.iloc[:, i], return_counts=True)
@@ -229,7 +228,8 @@ class ReadB():
             return f'{np.round(np.mean(s), 1)} ({np.round(np.min(s), 1)}-{np.round(np.max(s), 1)})'
 
     @staticmethod
-    def vc(x, n):
+    def _vc(x, n):
+        """Generate unique combinations of scan acquisition types/modes."""
         import numpy as np
         ct = x.value_counts(subset=['ScMode', 'AcqMode'])
         s = []
@@ -238,106 +238,74 @@ class ReadB():
                 f'{ct.index.names[0]}={ct.index[i][0]} & {ct.index.names[1]}={ct.index[i][1]}: {ct[ct.index[i]]} ({np.round(ct[ct.index[0]] / n * 100, 1)} %)')
         return '; '.join(s)
 
-    @staticmethod
-    def window_mz_rt(Xr: np.ndarray, selection: dict = {'mz_min': None, 'mz_max': None, 'rt_min': None, 'rt_max': None},
-                     allow_none: bool = False, return_idc: bool = False):
-        part_none = any([x == None for x in selection.values()])
-        all_fill = any([x != None for x in selection.values()])
-        if not allow_none:
-            if not all_fill:
-                raise ValueError('Define plot boundaries with selection argument.')
-        if part_none:
-            if selection['mz_min'] is not None:
-                t1 = Xr[1] >= selection['mz_min']
-            else:
-                t1 = np.ones(Xr.shape[1], dtype=bool)
-            if selection['mz_max'] is not None:
-                t2 = Xr[1] <= selection['mz_max']
-            else:
-                t2 = np.ones(Xr.shape[1], dtype=bool)
-            if selection['rt_min'] is not None:
-                t3 = Xr[3] > selection['rt_min']
-            else:
-                t3 = np.ones(Xr.shape[1], dtype=bool)
-            if selection['rt_max'] is not None:
-                t4 = Xr[3] < selection['rt_max']
-            else:
-                t4 = np.ones(Xr.shape[1], dtype=bool)
-        else:
-            t1 = Xr[1] >= selection['mz_min']
-            t2 = Xr[1] <= selection['mz_max']
-            t3 = Xr[3] > selection['rt_min']
-            t4 = Xr[3] < selection['rt_max']
-        idx = np.where(t1 & t2 & t3 & t4)[0]
-        if return_idc:
-            return idx
-        else:
-            return Xr[..., idx]
-
-@logIA
+# @logIA
 @typechecked
 class ReadM():
-    """Import of XC-MS level 1 scan data from mzML files V1.1.0
-
-    Note that this class is designed for use with `MsExp`.
-
-    Args:
-        fpath: Path `string` variable pointing to mzML file
-        mslev: `String` defining ms level read-in (fulls can)
-    """
-
+    """mzML experiment class and import methods"""
     def __init__(self, fpath: str, mslev:str='1'):
+        """Import of XC-MS level 1 scan data from mzML files V1.1.0
+
+            Note that this class is designed for use with `MsExp`.
+
+            Args:
+                fpath: Path `string` variable pointing to mzML file
+                mslev: `String` defining ms level read-in (fulls can)
+        """
         self.fpath = fpath
         if mslev != '1':
             raise ValueError('Check mslev argument - This function currently support ms level 1 import only.')
         self.mslevel = mslev
-        self.read_mzml()
-        self.createSpectMat()
-        self.stime_conv()
+        self._read_mzml()
+        self._createSpectMat()
+        self._stime_conv()
         self.df['subsets'] = self.df.ms_level+self.df.scan_polarity
         ids = np.unique(self.df.subsets, return_counts=True)
         imax = np.argmax(ids[1])
-        if len(ids) > 1:
+        self.ms0string = ids[0][imax]
+        self.ms1string = None
+        if len(ids[0]) > 1:
             print(f'Experiment done with polarity switching! Selecting {ids[0][imax]} as default level 1 data set. Alter attribute `ms0string` to change polarity')
-            self.ms0string = ids[0][imax]
-            self.ms1string = None
             self.xrawd = {}
             self.dfd = {}
+            print(self.Xraw.shape)
             Xr = pd.DataFrame(self.Xraw.T)
             Xr.index=self.Xraw[0]
             for i, d in enumerate(ids[0]):
                 self.dfd.update({d: self.df[self.df.subsets == d]})
-                self.xrawd.update({d: Xr.loc[self.dfd[d]['index'].astype(int).values]})
+                self.xrawd.update({d: Xr.loc[self.dfd[d]['index'].astype(int).values].to_numpy().T})
         else:
             self.xrawd = {self.ms0string: self.Xraw}
             self.dfd = {self.ms0string: self.df}
 
-    def read_mzml(self):
+    def _read_mzml(self):
+        """Extracts MS data from mzml file"""
         # this is for mzml version 1.1.0
         # schema specification: https://raw.githubusercontent.com/HUPO-PSI/mzML/master/schema/schema_1.1/mzML1.1.0.xsd
         # read in data, files index 0 (see below)
         # flag is 1/2 for msLevel 1 or 2
         tree = ET.parse(self.fpath)
         root = tree.getroot()
-        child = children(root)
+        child = _children(root)
         imzml = child.index('mzML')
-        mzml_children = children(root[imzml])
+        mzml_children = _children(root[imzml])
         obos = root[imzml][mzml_children.index('cvList')] # controlled vocab (CV
-        self.obo_ids = get_obo(obos, obo_ids={})
+        self.obo_ids = _get_obo(obos, obo_ids={})
         seq = np.where(~np.isin(mzml_children, ['cvList', 'run']))[0]
         pp = {}
         for j in seq:
-            filed = node_attr_recurse(s=root[imzml][j], d=4, c=0, ii=[])
+            filed = _node_attr_recurse(s=root[imzml][j], d=4, c=0, ii=[])
             dn = {}
             for i in range(len(filed)):
                 dn.update(dict(zip([filed[i]['path'] + '_' + re.sub('\{.*\}', '', x) for x in list(filed[i].keys())[1:]],
                                    list(filed[i].values())[1:])))
             pp.update({mzml_children[j]: dn})
         run = root[imzml][mzml_children.index('run')]
-        self.out31 = collect_spectra_chrom(s=run, ii={}, d=20, c=0, flag=self.mslevel, tag='', obos=self.obo_ids)
+        self.out31 = _collect_spectra_chrom(s=run, ii={}, d=20, c=0, flag=self.mslevel, tag='', obos=self.obo_ids)
 
-    def createSpectMat(self):
-        sc_msl1 = [i for i, x in self.out31.items() if len(x['data']) == 2] # sid of ms level 1 scans
+    def _createSpectMat(self):
+        """Organise raw MS data and scan metadata"""
+
+        sc_msl1 = [i for i, x in self.out31.items() if len(x['data']) == 2]  # sid of ms level 1 scans
         # summarise and collect data
         ms = []
         meta = []
@@ -351,19 +319,20 @@ class ReadM():
                 add.append(dd['d'])
             idm = np.ones_like(dd['d'])
             add.append(idm * sid_count)
-            add.append(idm * float(d['meta']['MS:1000016'])) # obo ms:1000016 -> scan start time
+            add.append(idm * float(d['meta']['MS:1000016']))  # obo ms:1000016 -> scan start time
             ms.append((i, np.array(add)))
             sid_count += 1
 
         Xraw = np.concatenate([x[1] for x in ms], axis=1)
 
+        # 0: scanIdOri,
+        # 1: mz,
+        # 2: Int,
+        # 3: st,
+        # 4: scanIdNorm,
+
         self.Xraw = np.array([Xraw[2], Xraw[0], Xraw[1], Xraw[3], Xraw[2]])
-
-        # self.Xraw = Xraw[[3, 0, 1, 2, 3]].copy() #[sid, mz, intens, st, sid1]
-
-
         self.df = pd.DataFrame(meta, index=sc_msl1)
-
         pscan = np.repeat('None', self.df.shape[0])
         if 'MS:1000129' in self.df.columns:
             pscan[self.df['MS:1000129'].values == True] = "N"
@@ -392,13 +361,104 @@ class ReadM():
                            self.df.columns.values]
         self.df['fname'] = self.fpath
 
-    def stime_conv(self):
+        # sc_msl1 = [i for i, x in self.out31.items() if len(x['data']) == 2] # sid of ms level 1 scans
+        # # ms = collections.defaultdict(list)
+        # meta = collections.defaultdict(list)
+        # N = collections.defaultdict(list)
+        # P = collections.defaultdict(list)
+        # for i in sc_msl1:
+        #     # if ('s' in i) : # and (d['meta']['MS:1000511'] == '1')   # scans, obo ms:1000511 -> ms level
+        #     d = self.out31[i]
+        #     mz = d['data']['m/z']['d']
+        #     ilen = len(mz)
+        #     # st = [float(d['meta']['MS:1000016'])] * ilen
+        #     # sid = [int(d['meta']['index']) + 1] * ilen
+        #
+        #     if 'MS:1000129' in d['meta'].keys():
+        #         meta['N'].append(d['meta'])
+        #         # sid_norm = [len(meta['N'])] * ilen
+        #         #
+        #         # N['sid'] = N['sid'] + sid
+        #         # N['mz'] = N['mz'] + mz
+        #         # N['int_'] = N['int_'] + d['data']['Int']['d']
+        #         # N['st'] = N['st'] + st
+        #         # N['sid_norm'] = N['sid_norm'] + sid_norm
+        #
+        #         # N['sid'].append(sid)
+        #         N['n'].append(ilen)
+        #         N['mz'].append(mz)
+        #         N['int_'].append(d['data']['Int']['d'])
+        #         # N['st'].append(st)
+        #         # N['sid_norm'].append(st)
+        #
+        #     elif 'MS:1000130' in d['meta'].keys():
+        #         meta['P'].append(d['meta'])
+        #         sid_norm = (idm * len(meta['P'])).astype(int)
+        #         dar = (sid, mz, d['data']['Int']['d'], st, sid_norm)
+        #         P['sid'].append(sid)
+        #         P['mz'].append(mz)
+        #         P['int_'].append(d['data']['Int']['d'])
+        #         P['st'].append(st)
+        #         P['sid_norm'].append(st)
+        #
+        #
+        # ms['P'].append(dar)
+        #
+        # xrawd = {}
+        # dfd = {}
+        # for i in meta.keys():
+        #     if i == 'N':
+        #
+        #         r=[x for xs in N['mz'] for x in xs]
+        #         s=[x for xs in N['int_'] for x in xs]
+        #
+        #         tt=[j for i, k in enumerate(N['n']) for j in [i]*k]
+        #         tt = [j for i, k in enumerate(N['n']) for j in [i] * k]
+        #         tt = [j for i, k in enumerate(N['n']) for j in [i] * k]
+        #
+        #
+        #         pd.DataFrame([list(itertools.chain.from_iterable(N['sid'])),
+        #         list(itertools.chain.from_iterable(N['mz'])),
+        #         list(itertools.chain.from_iterable(N['int_'])),
+        #         list(itertools.chain.from_iterable(N['st'])),
+        #         list(itertools.chain.from_iterable(N['sid_norm']))])
+        #         add = np.concatenate([N['sid'], N['mz'], N['int_'], N['st'], N['sid_norm']])
+        #         add = np.c_([N['sid'], N['mz']])
+        #
+        #     pd.DataFrame([list(itertools.chain.from_iterable(N['mz'])),
+        #                   list(map(float, list(itertools.chain.from_iterable(N['sid']))))])
+        #
+        #     xrawd[i] = np.concatenate(ms[i], axis=1)
+        #     dfd[i] = np.concatenate(meta[i], axis=1)
+        #     dfd[i]['scan_polarity'] = i
+        #     if 'MS:1000127' in dfd[i].columns:
+        #         add = np.repeat('centroided', dfd[i].shape[0])
+        #         add[~(dfd[i]['MS:1000127'] == True)] = 'profile'
+        #         dfd[i]['MS:1000127'] = add
+        #     if 'MS:1000128' in self.df.columns:
+        #         add = np.repeat('profile', dfd[i].shape[0])
+        #         add[~(dfd[i]['MS:1000128'] == True)] = 'centroided'
+        #         dfd[i]['MS:1000128'] = add
+        #
+        #     dfd[i] = dfd[i].rename(
+        #         columns={'UO:0000010': 'time_unit', 'UO:0000031': 'time_unit', 'defaultArrayLength': 'n',
+        #                  'MS:1000129': 'polNeg', 'MS:1000130': 'polPos',
+        #                  'MS:1000127': 'specRepresentation', 'MS:1000128': 'specRepresentation',
+        #                  'MS:1000505': 'MaxIntensity', 'MS:1000285': 'SumIntensity',
+        #                  'MS:1000016': 'Rt'
+        #                  })
+        #     dfd[i].columns = [self.obo_ids[x]['name'].replace(' ', '_') if x in self.obo_ids.keys() else x for x in
+        #                        dfd[i].columns.values]
+        #     dfd[i]['fname'] = dfd[i].fpath
+
+
+    def _stime_conv(self):
+        """Performs scan time conversion from minutes to seconds."""
         self.df['Rt'] = self.df['Rt'].astype(float)
         if 'min' in self.df['time_unit'].iloc[1]:
             self.df['Rt']=self.df['Rt']*60
             self.df['time_unit'] = 'sec'
             self.Xraw[3] = self.Xraw[3] * 60
-
 
 @typechecked
 class MSstat:
@@ -406,8 +466,8 @@ class MSstat:
 
     Note that this class is designed for use with `MsExp`.
     """
-
     def ecdf(self, plot:bool = False):
+        """Calculates empirical cumulative density fct"""
         # a is the data array
         self.ecdf_x = np.sort(self.Xraw[...,2])
         self.ecdf_y = np.arange(len(self.ecdf_x)) / float(len(self.ecdf_x))
@@ -420,31 +480,33 @@ class MSstat:
         if hasattr(self, 'noise_thres'):
             ax.vlines(x=self.noise_thres, ymin=0, ymax=1, color='red')
     def get_ecdfInt(self, p: float):
+        """Inverse empirical cumulative density fct"""
         p = np.array(p)[..., np.newaxis]
         if p.ndim ==1:
             p = p[np.newaxis, ...]
         if (any(p < 0)) | (any(p > 1)):
             raise ValueError('p value range: 0-1 ')
         return self.ecdf_x[np.argmin(np.abs(self.ecdf_y - p), axis=1)]
-    def calcSignalWindow(self, p: float = 0.999, plot: bool = True, sc: float =300,  **kwargs):
-        Xr = self.Xraw[self.Xraw[...,2] > self.get_ecdfInt(p),...]
-        Xs=Xr[(Xr[...,1]>300) & (Xr[...,3]<180)]
-        t=np.histogram2d(Xs[..., 1]*sc, Xs[..., 3]) #, **kwargs
-        extent = [t[2][0], t[2][-1], t[1][0]/sc, t[1][-1]/sc]
-        if plot:
-            f, axs = plt.subplots(1, 2)
-            axs[0].matshow(t[0]/sc,  extent=extent, origin='lower', aspect='auto')
-        ii = np.where(t[0] == np.max(t[0]))
-        self.mzsignal = mzra = (t[1][ii[0][0]]/sc, t[1][ii[0][0]+1]/sc)
-        self.rtsignal = rtra = (t[2][ii[1][0]]-30, t[2][ii[1][0] + 1]+30)
-        print(self.rtsignal)
-        print(rtra)
-        print(f'mz range: {mzra}, rt range (s): {np.round(rtra, 0)}')
-        idc=(self.Xraw[..., 1] > mzra[0]) & (self.Xraw[..., 1] < mzra[1]) & (self.Xraw[..., 3] > (rtra[0])) & (self.Xraw[..., 3] < (rtra[1]))
-        self.Xsignal = self.Xraw[idc,...]
-        self.Xsignal = self.Xsignal[self.Xsignal[...,2]> self.get_ecdfInt(0.99)]
-        if plot:
-            axs[1].scatter(self.Xsignal[...,3], self.Xsignal[...,1], s=0.5, c=np.log(self.Xsignal[...,2]))
+    # def calcSignalWindow(self, p: float = 0.999, plot: bool = True, sc: float =300,  **kwargs):
+    #     """experimental"""
+    #     Xr = self.Xraw[self.Xraw[...,2] > self.get_ecdfInt(p),...]
+    #     Xs=Xr[(Xr[...,1]>300) & (Xr[...,3]<180)]
+    #     t=np.histogram2d(Xs[..., 1]*sc, Xs[..., 3]) #, **kwargs
+    #     extent = [t[2][0], t[2][-1], t[1][0]/sc, t[1][-1]/sc]
+    #     if plot:
+    #         f, axs = plt.subplots(1, 2)
+    #         axs[0].matshow(t[0]/sc,  extent=extent, origin='lower', aspect='auto')
+    #     ii = np.where(t[0] == np.max(t[0]))
+    #     self.mzsignal = mzra = (t[1][ii[0][0]]/sc, t[1][ii[0][0]+1]/sc)
+    #     self.rtsignal = rtra = (t[2][ii[1][0]]-30, t[2][ii[1][0] + 1]+30)
+    #     print(self.rtsignal)
+    #     print(rtra)
+    #     print(f'mz range: {mzra}, rt range (s): {np.round(rtra, 0)}')
+    #     idc=(self.Xraw[..., 1] > mzra[0]) & (self.Xraw[..., 1] < mzra[1]) & (self.Xraw[..., 3] > (rtra[0])) & (self.Xraw[..., 3] < (rtra[1]))
+    #     self.Xsignal = self.Xraw[idc,...]
+    #     self.Xsignal = self.Xsignal[self.Xsignal[...,2]> self.get_ecdfInt(0.99)]
+    #     if plot:
+    #         axs[1].scatter(self.Xsignal[...,3], self.Xsignal[...,1], s=0.5, c=np.log(self.Xsignal[...,2]))
     # def scans_sec(self):
     #     asps = 1/((self.scantime.max() - self.scantime.min())/self.summary.nSc.iloc[0]) # hz
     #     ii = np.diff(np.unique(self.scantime))
@@ -458,6 +520,7 @@ class Fdet:
     """
     @log
     def getScaling(self, **kwargs):
+        """Manual selection of signal trace to calculate m/z dimension scaling factor"""
         def line_select_callback(eclick, erelease):
             x1c, y1c = eclick.xdata, eclick.ydata
             x2c, y2c = erelease.xdata, erelease.ydata
@@ -482,7 +545,18 @@ class Fdet:
                              'ppm': 15}, \
                      qcm_local: bool=True)\
             :
+        """Feature detection.
 
+            Perform feature detection based on dbscan.
+
+            Args:
+                mz_adj: Multiplicative adjustment factor for the m/z dimension (`float`)
+                q_noise: Noise intensity threshold provided as quantile probability (`float`)
+                dbs_par: dbscan parameters as dictionary (`eps` and `min_samples)
+                selection: M/z and scantime (in sec) window
+                qc_par: Feature quality filter parameters as dictionary (see Details)
+                qcm_local: `bool` indicating if quantile intensity thresh. should be calculated locally in m/z and st window or globally
+        """
         s0 = time.time()
         self.mz_adj = mz_adj
         self.q_noise = q_noise
@@ -492,7 +566,7 @@ class Fdet:
 
         # if desired reduce mz/rt regions for ppicking
         # Xraw has 5 rows: scanIdOri, mz, int, st, scanIdNorm
-        self.Xf = self.window_mz_rt(self.xrawd[self.ms0string], self.selection, allow_none=True, return_idc=False)
+        self.Xf = self._window_mz_rt(self.xrawd[self.ms0string], self.selection, allow_none=True, return_idc=False)
 
         # det noiseInt and append to X
         if qcm_local:
@@ -525,12 +599,13 @@ class Fdet:
         cl_mem[idx_signal] = dbs.labels_
         self.Xf = np.r_[self.Xf, cl_mem[np.newaxis, ...]]  # Xf has 8 columns: scanIdOri, mz, int, st, scanIdNorm, noiseBool, st_adj, clMem
         # s3 = time.time()
-        self.feat_summary1()
+        self._feat_summary1()
         s4 = time.time()
 
         print(f'total time pp (min): {np.round((s4-s0)/60, 1)}')
 
-    def feat_summary1(self):
+    def _feat_summary1(self):
+        """Define feature classes based on quality constraints"""
         # t1 = time.time()
         self.feat = {}
         self.feat_l2 = []
@@ -547,7 +622,7 @@ class Fdet:
         for fid in cl_n_above:
             c += 1
             # print(fid)
-            f1 = self.cls(cl_id=fid, Xf=self.Xf, qc_par=self.qc_par)
+            f1 = self._cls(cl_id=fid, Xf=self.Xf, qc_par=self.qc_par)
             # print('---')
             ufid = 'id:' + str(fid)
             self.feat.update({ufid: f1})
@@ -561,7 +636,7 @@ class Fdet:
         # qq = [self.feat[x]['qc'][0] if isinstance(self.feat[x]['qc'], type(())) else self.feat[x]['qc'] for x in
         #       self.feat_l2]
 
-        print(f'Time for {len(cl_n_above)} feature summaries: {np.round(t3-t2)}s ({np.round(len(cl_n_above) / (t3-t2), 2)}s per ft)')
+        print(f'Time for {len(cl_n_above)} feature summaries: {np.round(t3-t2)}s ({np.round((t3-t2)/len(cl_n_above), 2)}s per ft)')
 
         if (len(self.feat_l2) == 0) & (len(self.feat_l3) == 0):
             raise ValueError('No L2 features found')
@@ -574,217 +649,219 @@ class Fdet:
         else:
             print(f'Number of L3 features: {len(self.feat_l3)} ({np.round(len(self.feat_l3) / (len(self.feat_l2)+len(self.feat_l3))*100,1)}%)')
 
+    # # @background
+    # def cl_summary(self, cl_id: Union[int, np.int64]):
+    #     """Cluster summary"""
+    #     # cl_id = cl_n_above[0]
+    #     # cluster summary
+    #     # X is data matrix
+    #     # dbs is clustering object with lables
+    #     # cl_id is cluster id in labels
+    #     # st_adjust is scantime adjustment factor
+    #
+    #     # Xf has 8 columns:
+    #     # 0: scanIdOri,
+    #     # 1: mz,
+    #     # 2: Int,
+    #     # 3: st,
+    #     # 4: scanIdNorm,
+    #     # 5: noiseBool,
+    #     # 6: st_adj,
+    #     # 7: clMem
+    #
+    #     # import matplotlib.pyplot as plt
+    #     # cl_id = 3660
+    #     @log
+    #     def wImean(x, I):
+    #         # intensity weighted mean of st
+    #         w = I / np.sum(I)
+    #         wMean_val = np.sum(w * x)
+    #         wMean_idx = np.argmin(np.abs(x - wMean_val))
+    #         return (wMean_val, wMean_idx)
+    #
+    #     @log
+    #     def ppm_mz(mz):
+    #         return np.std(mz) / np.mean(mz) * 1e6
+    #
+    #     # dp idx for cluster
+    #     idx = np.where(self.Xf[7] == cl_id)[0]
+    #     iLen = len(idx)
+    #
+    #     # gaps or doublets in successive scan ids
+    #     x_sid = self.Xf[4, idx]
+    #     sid_diff = np.diff(x_sid)
+    #     sid_gap = np.sum((sid_diff > 1) | (sid_diff < 1)) / (iLen - 1)
+    #
+    #     # import matplotlib.pyplot as plt
+    #     x = self.Xf[3, idx]  # scantime
+    #     y = self.Xf[2, idx]  # intensity
+    #     mz = self.Xf[1, idx]  # mz
+    #     ppm = ppm_mz(mz)
+    #
+    #     mz_min = np.min(mz)
+    #     mz_max = np.max(mz)
+    #     rt_min = np.min(x)
+    #     rt_max = np.max(x)
+    #
+    #
+    #     if ppm > self.qc_par['ppm']:
+    #         crit = 'm/z variability of a feature (ppm)'
+    #         qc = {'sId_gap': sid_gap, 'ppm': ppm}
+    #         quant = {}
+    #         descr = {'ndp': iLen, 'st_span': np.round(rt_max - rt_min, 1), \
+    #                  'mz_min': mz_min, 'mz_max': mz_max, \
+    #                  'rt_min': rt_min, 'rt_max': rt_max, }
+    #         fdata = {'st': x, 'I_raw': y}
+    #         od = {'flev': 2, 'crit': crit, 'qc': qc, 'quant': quant, 'descr': descr, 'fdata': fdata}
+    #         return od
+    #
+    #     if sid_gap > self.qc_par['sId_gap']:
+    #         crit = 'sId_gap: scan ids not consecutive (%)'
+    #         qc = {'sId_gap': sid_gap, 'ppm': ppm}
+    #         quant = {}
+    #         descr = {'ndp': iLen, 'st_span': np.round(rt_max - rt_min, 1), \
+    #                  'mz_min': mz_min, 'mz_max': mz_max, \
+    #                  'rt_min': rt_min, 'rt_max': rt_max, }
+    #         fdata = {'st': x, 'I_raw': y}
+    #         od = {'flev': 2, 'crit': crit, 'qc': qc, 'quant': quant, 'descr': descr, 'fdata': fdata}
+    #         return od
+    #
+    #     # _, icent = wImean(x, y)
+    #
+    #     # minor smoothing - minimum three data points - and  padding
+    #     ysm = np.convolve(y, np.ones(3) / 3, mode='valid')
+    #     ysm = np.concatenate(([y[0]], ysm, [y[-1]]))
+    #     xsm = x
+    #
+    #
+    #     # I min-max scaling and bline correction
+    #     y_max = np.max(y)
+    #     y = y / y_max
+    #     ysm_max = np.max(ysm)
+    #     ysm = ysm / ysm_max
+    #     # bline correction of smoothed signal
+    #     # if smoothed signal has less than three data points, then this won't work
+    #     # minimum last points minu
+    #     y_bl = ((np.min(ysm[-3:]) - np.min(ysm[0:3])) / (xsm[-1] - xsm[0])) * (xsm - np.min(xsm)) + np.min(ysm[0:3])
+    #
+    #     ybcor = ysm - y_bl
+    #     bcor_max = np.max(ybcor * ysm_max)
+    #
+    #     # check peak centre
+    #     _, icent = wImean(xsm, ybcor)
+    #
+    #     # if (icent < 2) | (icent > len(idxsm) - 2):
+    #     if (icent < 2) | (icent > (len(idx) - 2)):
+    #         crit = 'icent: Peak is not centered'
+    #         qc = {'sId_gap': sid_gap, 'icent': icent, 'ppm': ppm}
+    #         quant = {}
+    #         descr = {'ndp': iLen, 'st_span': np.round(rt_max - rt_min, 1), \
+    #                  'mz_min': mz_min, 'mz_max': mz_max, \
+    #                  'rt_min': rt_min, 'rt_max': rt_max, }
+    #         fdata = {'st': x, 'st_sm': xsm, 'I_sm_bline': ybcor * ysm_max, 'I_smooth': ysm * ysm_max,
+    #                  'I_raw': y * y_max,
+    #                  'I_bl': y_bl * ysm_max, }
+    #         od = {'flev': 2, 'crit': crit, 'qc': qc, 'quant': quant, 'descr': descr, 'fdata': fdata}
+    #         return od
+    #
+    #     nneg = np.sum(ybcor >= -0.05) / len(ysm)
+    #     if nneg < self.qc_par['non_neg']:
+    #         crit = 'nneg: Neg Intensity values'
+    #         qc = {'sId_gap': sid_gap, 'non_neg': nneg, 'ppm': ppm}
+    #         quant = {}
+    #         descr = {'ndp': iLen, 'st_span': np.round(rt_max - rt_min, 1), \
+    #                  'mz_min': mz_min, 'mz_max': mz_max, \
+    #                  'rt_min': rt_min, 'rt_max': rt_max, }
+    #         fdata = {'st': x, 'st_sm': xsm, 'I_sm_bline': ybcor * ysm_max, 'I_smooth': ysm * ysm_max,
+    #                  'I_raw': y * y_max, 'I_bl': y_bl * ysm_max, }
+    #         od = {'flev': 2, 'crit': crit, 'qc': qc, 'quant': quant, 'descr': descr, 'fdata': fdata}
+    #         return od
+    #
+    #     # signal / noise
+    #     scans = np.unique(x_sid)
+    #     scan_id = np.concatenate([np.where((self.Xf[4] == x) & (self.Xf[5] == 1))[0] for x in scans])
+    #     noiI = np.median(self.Xf[2, scan_id])
+    #     sino = bcor_max / noiI
+    #
+    #     if sino < self.qc_par['sino']:
+    #         crit = 'sino: s/n below qc threshold'
+    #         qc = {'sId_gap': sid_gap, 'non_neg': nneg, 'sino': sino, 'ppm': ppm}
+    #         quant = {}
+    #         descr = {'ndp': iLen, 'st_span': np.round(rt_max - rt_min, 1), \
+    #                  'mz_min': mz_min, 'mz_max': mz_max, \
+    #                  'rt_min': rt_min, 'rt_max': rt_max, }
+    #         fdata = {'st': x, 'st_sm': xsm, 'I_sm_bline': ybcor * ysm_max, 'I_smooth': ysm * ysm_max,
+    #                  'I_raw': y * y_max,
+    #                  'I_bl': y_bl * ysm_max, }
+    #         od = {'flev': 2, 'crit': crit, 'qc': qc, 'quant': quant, 'descr': descr, 'fdata': fdata}
+    #         return od
+    #
+    #     # intensity variation level
+    #     idx_maxI = np.argmax(ybcor)
+    #     sdxdy = (np.sum(np.diff(ybcor[:idx_maxI]) < (-0.05)) + np.sum(np.diff(ybcor[(idx_maxI + 1):]) > 0.05)) / (
+    #             len(ybcor) - 3)
+    #
+    #     if sdxdy > self.qc_par['raggedness']:
+    #         crit = 'raggedness: intensity variation level above qc threshold'
+    #         qc = {'sId_gap': sid_gap, 'non_neg': nneg, 'sino': sino, 'raggedness': sdxdy, 'ppm': ppm}
+    #         quant = {}
+    #         descr = {'ndp': iLen, 'st_span': np.round(rt_max - rt_min, 1), \
+    #                  'mz_min': mz_min, 'mz_max': mz_max, \
+    #                  'rt_min': rt_min, 'rt_max': rt_max, }
+    #         fdata = {'st': x, 'st_sm': xsm, 'I_sm_bline': ybcor * ysm_max, 'I_smooth': ysm * ysm_max,
+    #                  'I_raw': y * y_max,
+    #                  'I_bl': y_bl * ysm_max, }
+    #         od = {'flev': 2, 'crit': crit, 'qc': qc, 'quant': quant, 'descr': descr, 'fdata': fdata}
+    #         return od
+    #
+    #     # general feature descriptors
+    #     # mz_maxI = np.max(self.Xf[2, idx])
+    #     mz_maxI = mz[np.argmax(y)]
+    #     rt_maxI = x[np.argmax(y)]
+    #
+    #     # rt_maxI = x[np.argmax(self.Xf[2, idx])]
+    #     rt_mean = np.mean(xsm)
+    #     mz_mean = np.mean(mz)
+    #
+    #     # create subset with equal endings
+    #     _, icent = wImean(xsm, ybcor)
+    #
+    #     # tailing
+    #     tail = rt_maxI / rt_mean
+    #
+    #     # integrals
+    #     a = integrate.trapz(ybcor * bcor_max, x=xsm)
+    #     a_raw = integrate.trapz(y, x)
+    #     a_sm = integrate.trapz(ysm, xsm)
+    #
+    #     # I mind not need this here
+    #     # include symmetry and monotonicity
+    #     pl = find_peaks(ybcor * bcor_max, distance=10)
+    #     plle = len(pl[0])
+    #
+    #     if plle > 0:
+    #         pp = peak_prominences(ybcor * bcor_max, pl[0])
+    #         if len(pp[0]) > 0:
+    #             aa = str(np.round(pp[0][0]))
+    #         else:
+    #             aa = 0
+    #     else:
+    #         pl = -1
+    #         aa = -1
+    #     qc = {'sId_gap': sid_gap, 'non_neg': nneg, 'sino': sino, 'raggedness': sdxdy, 'tail': tail, 'ppm': ppm}
+    #     quant = {'raw': a_raw, 'sm': a_sm, 'smbl': a}
+    #     descr = {'ndp': iLen, 'npeaks': plle, 'pprom': aa, 'st_span': np.round(rt_max - rt_min, 1), \
+    #              'mz_maxI': mz_maxI, 'rt_maxI': rt_maxI, \
+    #              'mz_mean': mz_mean, 'mz_min': mz_min, 'mz_max': mz_max, \
+    #              'rt_mean': rt_mean, 'rt_min': rt_min, 'rt_max': rt_max, }
+    #     fdata = {'st': x, 'st_sm': xsm, 'I_sm_bline': ybcor * ysm_max, 'I_smooth': ysm * ysm_max, 'I_raw': y * y_max,
+    #              'I_bl': y_bl * ysm_max, }
+    #     od = {'flev': 3, 'qc': qc, 'quant': quant, 'descr': descr, 'fdata': fdata}
+    #     return od
+
     # @background
-    def cl_summary(self, cl_id: Union[int, np.int64]):
-        # cl_id = cl_n_above[0]
-        # cluster summary
-        # X is data matrix
-        # dbs is clustering object with lables
-        # cl_id is cluster id in labels
-        # st_adjust is scantime adjustment factor
-
-        # Xf has 8 columns:
-        # 0: scanIdOri,
-        # 1: mz,
-        # 2: Int,
-        # 3: st,
-        # 4: scanIdNorm,
-        # 5: noiseBool,
-        # 6: st_adj,
-        # 7: clMem
-
-        # import matplotlib.pyplot as plt
-        # cl_id = 3660
-        @log
-        def wImean(x, I):
-            # intensity weighted mean of st
-            w = I / np.sum(I)
-            wMean_val = np.sum(w * x)
-            wMean_idx = np.argmin(np.abs(x - wMean_val))
-            return (wMean_val, wMean_idx)
-
-        @log
-        def ppm_mz(mz):
-            return np.std(mz) / np.mean(mz) * 1e6
-
-        # dp idx for cluster
-        idx = np.where(self.Xf[7] == cl_id)[0]
-        iLen = len(idx)
-
-        # gaps or doublets in successive scan ids
-        x_sid = self.Xf[4, idx]
-        sid_diff = np.diff(x_sid)
-        sid_gap = np.sum((sid_diff > 1) | (sid_diff < 1)) / (iLen - 1)
-
-        # import matplotlib.pyplot as plt
-        x = self.Xf[3, idx]  # scantime
-        y = self.Xf[2, idx]  # intensity
-        mz = self.Xf[1, idx]  # mz
-        ppm = ppm_mz(mz)
-
-        mz_min = np.min(mz)
-        mz_max = np.max(mz)
-        rt_min = np.min(x)
-        rt_max = np.max(x)
-
-
-        if ppm > self.qc_par['ppm']:
-            crit = 'm/z variability of a feature (ppm)'
-            qc = {'sId_gap': sid_gap, 'ppm': ppm}
-            quant = {}
-            descr = {'ndp': iLen, 'st_span': np.round(rt_max - rt_min, 1), \
-                     'mz_min': mz_min, 'mz_max': mz_max, \
-                     'rt_min': rt_min, 'rt_max': rt_max, }
-            fdata = {'st': x, 'I_raw': y}
-            od = {'flev': 2, 'crit': crit, 'qc': qc, 'quant': quant, 'descr': descr, 'fdata': fdata}
-            return od
-
-        if sid_gap > self.qc_par['sId_gap']:
-            crit = 'sId_gap: scan ids not consecutive (%)'
-            qc = {'sId_gap': sid_gap, 'ppm': ppm}
-            quant = {}
-            descr = {'ndp': iLen, 'st_span': np.round(rt_max - rt_min, 1), \
-                     'mz_min': mz_min, 'mz_max': mz_max, \
-                     'rt_min': rt_min, 'rt_max': rt_max, }
-            fdata = {'st': x, 'I_raw': y}
-            od = {'flev': 2, 'crit': crit, 'qc': qc, 'quant': quant, 'descr': descr, 'fdata': fdata}
-            return od
-
-        # _, icent = wImean(x, y)
-
-        # minor smoothing - minimum three data points - and  padding
-        ysm = np.convolve(y, np.ones(3) / 3, mode='valid')
-        ysm = np.concatenate(([y[0]], ysm, [y[-1]]))
-        xsm = x
-
-
-        # I min-max scaling and bline correction
-        y_max = np.max(y)
-        y = y / y_max
-        ysm_max = np.max(ysm)
-        ysm = ysm / ysm_max
-        # bline correction of smoothed signal
-        # if smoothed signal has less than three data points, then this won't work
-        # minimum last points minu
-        y_bl = ((np.min(ysm[-3:]) - np.min(ysm[0:3])) / (xsm[-1] - xsm[0])) * (xsm - np.min(xsm)) + np.min(ysm[0:3])
-
-        ybcor = ysm - y_bl
-        bcor_max = np.max(ybcor * ysm_max)
-
-        # check peak centre
-        _, icent = wImean(xsm, ybcor)
-
-        # if (icent < 2) | (icent > len(idxsm) - 2):
-        if (icent < 2) | (icent > (len(idx) - 2)):
-            crit = 'icent: Peak is not centered'
-            qc = {'sId_gap': sid_gap, 'icent': icent, 'ppm': ppm}
-            quant = {}
-            descr = {'ndp': iLen, 'st_span': np.round(rt_max - rt_min, 1), \
-                     'mz_min': mz_min, 'mz_max': mz_max, \
-                     'rt_min': rt_min, 'rt_max': rt_max, }
-            fdata = {'st': x, 'st_sm': xsm, 'I_sm_bline': ybcor * ysm_max, 'I_smooth': ysm * ysm_max,
-                     'I_raw': y * y_max,
-                     'I_bl': y_bl * ysm_max, }
-            od = {'flev': 2, 'crit': crit, 'qc': qc, 'quant': quant, 'descr': descr, 'fdata': fdata}
-            return od
-
-        nneg = np.sum(ybcor >= -0.05) / len(ysm)
-        if nneg < self.qc_par['non_neg']:
-            crit = 'nneg: Neg Intensity values'
-            qc = {'sId_gap': sid_gap, 'non_neg': nneg, 'ppm': ppm}
-            quant = {}
-            descr = {'ndp': iLen, 'st_span': np.round(rt_max - rt_min, 1), \
-                     'mz_min': mz_min, 'mz_max': mz_max, \
-                     'rt_min': rt_min, 'rt_max': rt_max, }
-            fdata = {'st': x, 'st_sm': xsm, 'I_sm_bline': ybcor * ysm_max, 'I_smooth': ysm * ysm_max,
-                     'I_raw': y * y_max, 'I_bl': y_bl * ysm_max, }
-            od = {'flev': 2, 'crit': crit, 'qc': qc, 'quant': quant, 'descr': descr, 'fdata': fdata}
-            return od
-
-        # signal / noise
-        scans = np.unique(x_sid)
-        scan_id = np.concatenate([np.where((self.Xf[4] == x) & (self.Xf[5] == 1))[0] for x in scans])
-        noiI = np.median(self.Xf[2, scan_id])
-        sino = bcor_max / noiI
-
-        if sino < self.qc_par['sino']:
-            crit = 'sino: s/n below qc threshold'
-            qc = {'sId_gap': sid_gap, 'non_neg': nneg, 'sino': sino, 'ppm': ppm}
-            quant = {}
-            descr = {'ndp': iLen, 'st_span': np.round(rt_max - rt_min, 1), \
-                     'mz_min': mz_min, 'mz_max': mz_max, \
-                     'rt_min': rt_min, 'rt_max': rt_max, }
-            fdata = {'st': x, 'st_sm': xsm, 'I_sm_bline': ybcor * ysm_max, 'I_smooth': ysm * ysm_max,
-                     'I_raw': y * y_max,
-                     'I_bl': y_bl * ysm_max, }
-            od = {'flev': 2, 'crit': crit, 'qc': qc, 'quant': quant, 'descr': descr, 'fdata': fdata}
-            return od
-
-        # intensity variation level
-        idx_maxI = np.argmax(ybcor)
-        sdxdy = (np.sum(np.diff(ybcor[:idx_maxI]) < (-0.05)) + np.sum(np.diff(ybcor[(idx_maxI + 1):]) > 0.05)) / (
-                len(ybcor) - 3)
-
-        if sdxdy > self.qc_par['raggedness']:
-            crit = 'raggedness: intensity variation level above qc threshold'
-            qc = {'sId_gap': sid_gap, 'non_neg': nneg, 'sino': sino, 'raggedness': sdxdy, 'ppm': ppm}
-            quant = {}
-            descr = {'ndp': iLen, 'st_span': np.round(rt_max - rt_min, 1), \
-                     'mz_min': mz_min, 'mz_max': mz_max, \
-                     'rt_min': rt_min, 'rt_max': rt_max, }
-            fdata = {'st': x, 'st_sm': xsm, 'I_sm_bline': ybcor * ysm_max, 'I_smooth': ysm * ysm_max,
-                     'I_raw': y * y_max,
-                     'I_bl': y_bl * ysm_max, }
-            od = {'flev': 2, 'crit': crit, 'qc': qc, 'quant': quant, 'descr': descr, 'fdata': fdata}
-            return od
-
-        # general feature descriptors
-        # mz_maxI = np.max(self.Xf[2, idx])
-        mz_maxI = mz[np.argmax(y)]
-        rt_maxI = x[np.argmax(y)]
-
-        # rt_maxI = x[np.argmax(self.Xf[2, idx])]
-        rt_mean = np.mean(xsm)
-        mz_mean = np.mean(mz)
-
-        # create subset with equal endings
-        _, icent = wImean(xsm, ybcor)
-
-        # tailing
-        tail = rt_maxI / rt_mean
-
-        # integrals
-        a = integrate.trapz(ybcor * bcor_max, x=xsm)
-        a_raw = integrate.trapz(y, x)
-        a_sm = integrate.trapz(ysm, xsm)
-
-        # I mind not need this here
-        # include symmetry and monotonicity
-        pl = find_peaks(ybcor * bcor_max, distance=10)
-        plle = len(pl[0])
-
-        if plle > 0:
-            pp = peak_prominences(ybcor * bcor_max, pl[0])
-            if len(pp[0]) > 0:
-                aa = str(np.round(pp[0][0]))
-            else:
-                aa = 0
-        else:
-            pl = -1
-            aa = -1
-        qc = {'sId_gap': sid_gap, 'non_neg': nneg, 'sino': sino, 'raggedness': sdxdy, 'tail': tail, 'ppm': ppm}
-        quant = {'raw': a_raw, 'sm': a_sm, 'smbl': a}
-        descr = {'ndp': iLen, 'npeaks': plle, 'pprom': aa, 'st_span': np.round(rt_max - rt_min, 1), \
-                 'mz_maxI': mz_maxI, 'rt_maxI': rt_maxI, \
-                 'mz_mean': mz_mean, 'mz_min': mz_min, 'mz_max': mz_max, \
-                 'rt_mean': rt_mean, 'rt_min': rt_min, 'rt_max': rt_max, }
-        fdata = {'st': x, 'st_sm': xsm, 'I_sm_bline': ybcor * ysm_max, 'I_smooth': ysm * ysm_max, 'I_raw': y * y_max,
-                 'I_bl': y_bl * ysm_max, }
-        od = {'flev': 3, 'qc': qc, 'quant': quant, 'descr': descr, 'fdata': fdata}
-        return od
-
-    # @background
-    def cls(self, cl_id, Xf, qc_par):
+    def _cls(self, cl_id, Xf, qc_par):
+        """Cluster summary"""
         # cl_id = cl_n_above[0]
         # cluster summary
         # X is data matrix
@@ -929,13 +1006,21 @@ class Fdet:
 
     @log
     def vizpp(self, selection: dict = {'mz_min': 425, 'mz_max': 440, 'rt_min': 400, 'rt_max': 440}, lev: int = 3):
-        # l2 and l1 features mz/rt plot after peak picking
-        # label feature with id
+        """Visualise feature (peak picked) data.
+
+        Interactive scantime vs m/z plot with features highlighted, m/z and Intensity plot of selected features
+
+        Args:
+            selection: M/z and scantime (in sec) window
+            lev: Feature level for marking features (`2` or `3`)
+        """
+        # TODO:
+        # label feature with id in m/z Int plot
         # two panel plot: bottom m/z over st, top: st vs intentsity upon click on feature
         # basically like vis spectrum but including rectangles and all points but those in fgr feature(s) are s=0.1 and c='grey
 
         @log
-        def vis_feature(fdict, id, ax=None, add=False):
+        def _vis_feature(fdict, id, ax=None, add=False):
             # idx = np.where(self.Xf[:, 6] == fdict['id'])[0]
             if isinstance(ax, type(None)):
                 fig = plt.figure()
@@ -967,7 +1052,7 @@ class Fdet:
 
 
         # which feature - define plot axis boundaries
-        Xsub = self.window_mz_rt(self.Xf, selection, allow_none=False, return_idc=False)
+        Xsub = self._window_mz_rt(self.Xf, selection, allow_none=False, return_idc=False)
         fid_window = np.unique(Xsub[7])
         l2_ffeat = list(compress(self.feat_l2, np.in1d([float(i.split(':')[1]) for i in self.feat_l2], fid_window)))
         l3_ffeat = list(compress(self.feat_l3, np.in1d([float(i.split(':')[1]) for i in self.feat_l3], fid_window)))
@@ -1038,7 +1123,7 @@ class Fdet:
                                     bbox=dict(facecolor=a_col, alpha=0.3, boxstyle='circle', edgecolor='white',
                                               in_layout=False),
                                     wrap=False, picker=True, fontsize=fsize)
-            vis_feature(fdict=self.feat[ii], id=ii, ax=axs[0])
+            _vis_feature(fdict=self.feat[ii], id=ii, ax=axs[0])
 
         if lev == 3:
             for i in l3_ffeat:
@@ -1062,7 +1147,7 @@ class Fdet:
                                     bbox=dict(facecolor=a_col, alpha=0.3, boxstyle='circle', edgecolor='white',
                                               in_layout=False),
                                     wrap=False, picker=True, fontsize=fsize)
-            vis_feature(fdict=self.feat[ii], id=ii, ax=axs[0])
+            _vis_feature(fdict=self.feat[ii], id=ii, ax=axs[0])
                         # im = axs[1].scatter(f1['fdata']['st'], mz,
                         #                     c=np.log(f1['fdata']['I_raw']), s=5, cmap=cm)
         # cbaxes = inset_axes(axs[1], width="30%", height="5%", loc=3)
@@ -1076,12 +1161,12 @@ class Fdet:
                 # print('id:' + str(ids))
                 axs[0].clear()
                 axs[0].set_title('')
-                vis_feature(self.feat['id:' + ids], id=ids, ax=axs[0], add=False)
+                _vis_feature(self.feat['id:' + ids], id=ids, ax=axs[0], add=False)
                 event.canvas.draw()
             if event.mouseevent.button is MouseButton.RIGHT:
                 # print('right click')
                 # print('id:' + str(ids))
-                vis_feature(self.feat['id:' + ids], id=ids, ax=axs[0], add=True)
+                _vis_feature(self.feat['id:' + ids], id=ids, ax=axs[0], add=True)
                 event.canvas.draw()
 
         cid1 = fig.canvas.mpl_connect('pick_event', p_text)
@@ -1090,36 +1175,37 @@ class Fdet:
         axs[1].yaxis.set_label_text(r"$\bfm/z$")
 
     @log
-    def l3toDf(self):
+    def _l3toDf(self):
+        """Produce L3 feature table."""
         if len(self.feat_l3) > 0:
             descr = pd.DataFrame([self.feat[x]['descr'] for x in self.feat_l3])
             descr['id'] = self.feat_l3
             quant = pd.DataFrame([self.feat[x]['quant'] for x in self.feat_l3])
             qc = pd.DataFrame([self.feat[x]['qc'] for x in self.feat_l3])
 
-            out =  pd.concat((descr[[ 'rt_maxI', 'mz_maxI', 'rt_min', 'rt_max', 'npeaks']], qc[['ppm', 'sino']], quant['smbl']), axis=1)
-            out.index = descr['id']
-            self.l3Df = out.sort_values(['rt_maxI', 'mz_maxI', 'smbl'], ascending=True)
-            print()
+            # out =  pd.concat((descr[[ 'rt_maxI', 'mz_maxI', 'rt_min', 'rt_max', 'npeaks']], qc[['ppm', 'sino']], quant['smbl']), axis=1)
 
+            out = pd.concat((descr, quant, qc), axis=1)
+            out.index = descr['id']
+            self.l3Df = out.sort_values(['rtMaxI', 'mzMaxI', 'smbl'], ascending=True)
         else:
             print('No L3 feat')
 
-    @log
-    def l3gr(self):
-        # L3 feature grouping
-        self.l3toDf()
-        A = self.l3Df.index
-        isop = np.zeros(self.l3Df.shape[0])
-        count_isop=0
-        while len(A) > 0:
-            id= self.l3Df.loc[A[0]]
-            idc = np.where(((id.rt_maxI - self.l3Df.rt_maxI).abs() < 1) & ((id.mz_mean - self.l3Df.mz_mean) < 4.2))[0]
-            isop[idc]=count_isop
-            count_isop += 1
-            A = list(set(A) - set(self.l3Df.index[idc]))
-        self.l3Df['isot'] = isop
-        self.l3Df = self.l3Df.sort_values('isot', ascending=True)
+    # @log
+    # def l3gr(self):
+    #     # L3 feature grouping
+    #     self._l3toDf()
+    #     A = self.l3Df.index
+    #     isop = np.zeros(self.l3Df.shape[0])
+    #     count_isop=0
+    #     while len(A) > 0:
+    #         id= self.l3Df.loc[A[0]]
+    #         idc = np.where(((id.rt_maxI - self.l3Df.rt_maxI).abs() < 1) & ((id.mz_mean - self.l3Df.mz_mean) < 4.2))[0]
+    #         isop[idc]=count_isop
+    #         count_isop += 1
+    #         A = list(set(A) - set(self.l3Df.index[idc]))
+    #     self.l3Df['isot'] = isop
+    #     self.l3Df = self.l3Df.sort_values('isot', ascending=True)
 
 
 @typechecked
@@ -1142,17 +1228,16 @@ class MsExp(MSstat, Fdet):
         return cls(dpath = da.dpath, fname=da.fname, mslevel=da.mslevel, ms0string=da.ms0string, ms1string=da.ms1string, xrawd=da.xrawd, dfd=da.dfd, summary=da.summary)
 
     @classmethod
-    def rM(cls, da:ReadM):
+    def rM(cls, da: ReadM):
         # cls.__name__ = 'data import from msmate ReadM'
         return cls(dpath=da.fpath, fname=da.fpath, mslevel=da.mslevel, ms0string=da.ms0string, ms1string=da.ms1string,
                    xrawd=da.xrawd, dfd=da.dfd, summary=False)
 
     @classmethod
-    def rB(cls, da:ReadB):
+    def rB(cls, da: ReadB):
         # cls.__name__ = 'data import from msmate ReadB'
         return cls(dpath=da.dpath, fname=da.fname, mslevel=da.mslevel, ms0string=da.ms0string, ms1string=da.ms1string,
                    xrawd=da.xrawd, dfd=da.dfd, summary=da.summary)
-
 
     @logIA
     def __init__(self, dpath:str, fname:str, mslevel:str, ms0string:str, ms1string:Union[str, None], xrawd:dict, dfd:dict, summary:bool):
@@ -1167,7 +1252,7 @@ class MsExp(MSstat, Fdet):
         # self.df
         self.summary = summary
 
-    @log
+    # @log
     @staticmethod
     def _window_mz_rt(Xr: np.ndarray, selection: dict = {'mz_min': None, 'mz_max': None, 'rt_min': None, 'rt_max': None},
                      allow_none: bool = False, return_idc: bool = False):
@@ -1205,14 +1290,14 @@ class MsExp(MSstat, Fdet):
         else:
             return Xr[..., idx]
 
-    @log
+    # @log
     @staticmethod
     def _tick_conv(X):
         """Conversion time dimension from seconds to minutes."""
         V = X / 60
         return ["%.2f" % z for z in V]
 
-    @log
+    # @log
     def _noiseT(self, p, X=None, local=True):
         """Calculation of a noise intensity threshold using all data points or windowed data points."""
         if local:
@@ -1225,7 +1310,7 @@ class MsExp(MSstat, Fdet):
         idc_below = np.where(~idxN)[0]
         return (idc_below, idc_above)
 
-    @log
+    # @log
     @staticmethod
     def _get_density(X: np.ndarray, bw: float, q_noise: float = 0.5):
         """Calculation of m/z dimension kernel density"""
@@ -1238,7 +1323,7 @@ class MsExp(MSstat, Fdet):
         log_dens = np.exp(kde.score_samples(b[:, np.newaxis]))
         return (b, log_dens / np.max(log_dens))
 
-    @log
+    # @logIA
     def vizd(self, q_noise: float = 0.50,
              selection: dict = {'mz_min': None, 'mz_max': None, 'rt_min': None, 'rt_max': None},
              qcm_local: bool = True):
@@ -1258,8 +1343,8 @@ class MsExp(MSstat, Fdet):
           d.vizd(q_noise=0.99, selection = s1, qcm_local=True)
         ```
         """
-        # @log
-        def on_lims_change(event_ax: plt.axis):
+
+        def _on_lims_change(event_ax: plt.axis):
             x1, x2 = event_ax.get_xlim()
             y1, y2 = event_ax.get_ylim()
             selection = {'mz_min': y1, 'mz_max': y2, 'rt_min': x1, 'rt_max': x2}
@@ -1301,12 +1386,12 @@ class MsExp(MSstat, Fdet):
             cb = fig.colorbar(mappable=im, cax=cbaxes, orientation='vertical',
                               format=LogFormatterSciNotation(base=10, labelOnlyBase=False))
             cb.ax.tick_params(labelsize='xx-small')
-            axs[0].callbacks.connect('ylim_changed', on_lims_change)
+            axs[0].callbacks.connect('ylim_changed', _on_lims_change)
         fig.subplots_adjust(wspace=0.05)
         fig.show()
         return (fig, axs)
 
-    @logIA
+    # @logIA
     def viz(self, q_noise: float = 0.89,
             selection: dict = {'mz_min': None, 'mz_max': None, 'rt_min': None, 'rt_max': None}, qcm_local: bool = True):
         # viz 2D
@@ -1339,7 +1424,7 @@ class MsExp(MSstat, Fdet):
         fig.show()
         return (fig, ax)
 
-    @log
+    # @log
     def _massSpectrumDIA(self, rt: float = 150., scantype: str = '0_2_2_5_20.0', viz: bool = False):
         df = self.dfd[scantype]
         idx = np.argmin(np.abs(df.Rt - rt))
@@ -1359,7 +1444,7 @@ class MsExp(MSstat, Fdet):
             return (f, ax)
         else:
             return (sub[1], sub[2], np.zeros_like(sub[0]), inf)
-    @logIA
+    # @logIA
     def ms2L(self, q_noise, selection, qcm_local: bool = True):
         mpl.rcParams['keymap.back'].remove('left') if ('left' in mpl.rcParams['keymap.back']) else None
 
@@ -1367,7 +1452,7 @@ class MsExp(MSstat, Fdet):
             x1, x2 = event_ax.get_xlim()
             y1, y2 = event_ax.get_ylim()
             selection = {'mz_min': y1, 'mz_max': y2, 'rt_min': x1, 'rt_max': x2}
-            Xs = self.window_mz_rt(self.xrawd[self.ms0string], selection, allow_none=False)
+            Xs = self._window_mz_rt(self.xrawd[self.ms0string], selection, allow_none=False)
             bsMin = (y2 - y1) / 200 if ((y2 - y1) / 200) > 0.0001 else 0.0001
             bw = bsMin
             y, x = self._get_density(Xs, bw, q_noise=q_noise)
@@ -1474,7 +1559,7 @@ class MsExp(MSstat, Fdet):
                                       transform=axs[1, 0].transAxes)
         fig.subplots_adjust(wspace=0.05, hspace=0.3)
 
-    @logIA
+    # @logIA
     def chromg(self, tmin: float = None, tmax: float = None, ctype: list = ['tic', 'bpc', 'xic'], xic_mz: float = [],
                xic_ppm: float = 10):
         df_l1 = self.dfd[self.ms0string]
@@ -1522,12 +1607,12 @@ class MsExp(MSstat, Fdet):
         fig.show()
         return fig, ax1, ax2
 
-    @log
+    # @log
     def _d_ppm(self, mz: float, ppm: float):
         d = (ppm * mz) / 1e6
         return mz - (d / 2), mz + (d / 2)
 
-    @log
+    # @log
     def _xic(self, mz: float, ppm: float, rt_min: float = None, rt_max: float = None):
         mz_min, mz_max = self._d_ppm(mz, ppm)
 
@@ -1552,7 +1637,7 @@ class MsExp(MSstat, Fdet):
 
         return (stime, xic)
 
-    @log
+    # @log
     @staticmethod
     def _fwhmBound(intens, st, rtDelta=1 - 0.4):
         idxImax = np.argmax(intens)
@@ -1570,7 +1655,7 @@ class MsExp(MSstat, Fdet):
 
         return (ul1, ll1)
 
-    @log
+    # @log
     def igr(self):
         self._l3toDf()
         au = self.l3Df

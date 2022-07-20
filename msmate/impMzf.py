@@ -55,7 +55,7 @@ def extract_mass_spectrum_lev1(i, s_level, s_dic):
 
     return (ii, mz, I)
 
-def collect_spectra_chrom(s, ii={}, d=9, c=0, flag='1', tag='', obos={}):
+def _collect_spectra_chrom(s, ii={}, d=9, c=0, flag='1', tag='', obos={}):
     if c == d: return
     if (('chromatogram' == tag) | ('spectrum' == tag)):
         rtype = 'Ukwn'
@@ -63,7 +63,7 @@ def collect_spectra_chrom(s, ii={}, d=9, c=0, flag='1', tag='', obos={}):
             rtype = 'c'
         if ('spectrum' == tag):
             rtype = 's'
-        add_meta, data = extr_spectrum_chromg(s, flag=flag, rtype=rtype, obos=obos)
+        add_meta, data = _extr_spectrum_chromg(s, flag=flag, rtype=rtype, obos=obos)
         # if rtype == 'c': print(tag); print(add_meta); print(data)
         ii.update({rtype + add_meta['index']: {'meta': add_meta, 'data': data}})
 
@@ -71,30 +71,30 @@ def collect_spectra_chrom(s, ii={}, d=9, c=0, flag='1', tag='', obos={}):
     if len(ss) > 0:
         for i in range(len(ss)):
             tag = re.sub('\{.*\}', '', ss[i].tag)
-            collect_spectra_chrom(ss[i], ii=ii, d=d, c=c + 1, flag=flag, tag=tag, obos=obos)
+            _collect_spectra_chrom(ss[i], ii=ii, d=d, c=c + 1, flag=flag, tag=tag, obos=obos)
 
     return ii
 
-def extr_spectrum_chromg(x, flag='1', rtype='s', obos=[]):
-    add_meta = vaPar_recurse(x, ii={}, d=6, c=0, dname='name', dval='value', ddt='all')
+def _extr_spectrum_chromg(x, flag='1', rtype='s', obos=[]):
+    add_meta = _vaPar_recurse(x, ii={}, d=6, c=0, dname='name', dval='value', ddt='all')
 
     if rtype == 's':  # spectrum
         if flag == '1':  # mslevel 1 input
             if ('MS:1000511' in add_meta.keys()):  # find mslevel information
                 if add_meta['MS:1000511'] == '1':  # read in ms1
-                    out = data_recurse1(x, ii={}, d=9, c=0, ip='', obos=obos)
+                    out = _data_recurse1(x, ii={}, d=9, c=0, ip='', obos=obos)
                 else:
                     return (add_meta, [])
             else:  # can;t find mslevel info
                 print('MS level information not found not found - reading all experiments.')
-                out = data_recurse1(x, ii={}, d=9, c=0, ip='', obos=obos)
+                out = _data_recurse1(x, ii={}, d=9, c=0, ip='', obos=obos)
         else:
-            out = data_recurse1(x, ii={}, d=9, c=0, ip='', obos=obos)
+            out = _data_recurse1(x, ii={}, d=9, c=0, ip='', obos=obos)
     else:
-        out = data_recurse1(x, ii={}, d=9, c=0, ip='', obos=obos)
+        out = _data_recurse1(x, ii={}, d=9, c=0, ip='', obos=obos)
     return (add_meta, out)
 
-def data_recurse1(s, ii={}, d=9, c=0, ip='', obos=[]):
+def _data_recurse1(s, ii={}, d=9, c=0, ip='', obos=[]):
     # recursively extracts attributes from node s and with depth  d, add label children iterator as prefix
     if c == d: return
     if ('binaryDataArray' == re.sub('\{.*\}', '', s.tag)):
@@ -109,10 +109,10 @@ def data_recurse1(s, ii={}, d=9, c=0, ip='', obos=[]):
                 ip = 'c'
             if ('spectrum' == tag):
                 ip = 's'
-            data_recurse1(s=ss[i], ii=ii, d=d, c=c + 1, ip=ip, obos=obos)
+            _data_recurse1(s=ss[i], ii=ii, d=d, c=c + 1, ip=ip, obos=obos)
     return ii
 
-def dt_co(dvars):
+def _dt_co(dvars):
     # dtype and compression
     dt = None  # data type
     co = None  # compression
@@ -149,13 +149,13 @@ def dt_co(dvars):
 
     return (dt, co, ft)
 
-def read_bin(k, obo_ids):
+def _read_bin(k, obo_ids):
     # k is binary array
     # collect metadata
-    dvars = vaPar_recurse(k, ii={}, d=3, c=0, dname='accession', dval='cvRef', ddt='-')
-    dt, co, ft = dt_co(dvars)
+    dvars = _vaPar_recurse(k, ii={}, d=3, c=0, dname='accession', dval='cvRef', ddt='-')
+    dt, co, ft = _dt_co(dvars)
 
-    child = children(k)
+    child = _children(k)
     dbin = k[child.index('binary')]
 
     if co == 'zlib':
@@ -167,7 +167,7 @@ def read_bin(k, obo_ids):
 
     return (out, ft)
 
-def vaPar_recurse(s, ii={}, d=9, c=0, dname='accession', dval='value', ddt='all'):
+def _vaPar_recurse(s, ii={}, d=9, c=0, dname='accession', dval='value', ddt='all'):
     import re
     # recursively extracts attributes from node s and with depth  d, add label children iterator as prefix
     if c == d: return
@@ -189,10 +189,10 @@ def vaPar_recurse(s, ii={}, d=9, c=0, dname='accession', dval='value', ddt='all'
     if len(ss) > 0:
         # if ('spectrum' in s.tag):
         for i in range(len(ss)):
-            vaPar_recurse(s=ss[i], ii=ii, d=d, c=c + 1, ddt=ddt)
+            _vaPar_recurse(s=ss[i], ii=ii, d=d, c=c + 1, ddt=ddt)
     return ii
 
-def get_obo(obos, obo_ids={}):
+def _get_obo(obos, obo_ids={}):
     # download obo annotation data
     # create single dict with keys being of obo ids, eg, MS:1000500
     # obos is first cv element in mzml node
@@ -208,13 +208,13 @@ def get_obo(obos, obo_ids={}):
 
     return obo_ids
 
-def children(xr):
+def _children(xr):
     return [re.sub('\{.*\}', '', x.tag) for x in list(xr)]
 
 def exp_meta(root, ind, d):
     # combine attributes to dataframe with column names prefixed acc to child/parent relationship
     # remove web links in tags
-    filed = node_attr_recurse(s=root, d=d, c=0, ii=[])
+    filed = _node_attr_recurse(s=root, d=d, c=0, ii=[])
 
     dn = {}
     for i in range(len(filed)):
@@ -222,7 +222,7 @@ def exp_meta(root, ind, d):
                            list(filed[i].values())[1:])))
     return pd.DataFrame(dn, index=[ind])
 
-def node_attr_recurse(s, ii=[], d=3, c=0,  pre=0):
+def _node_attr_recurse(s, ii=[], d=3, c=0,  pre=0):
     # recursively extracts attributes from node s and with depth  d, add label children iterator as prefix
     if c == d: return
     # define ms level
@@ -236,7 +236,7 @@ def node_attr_recurse(s, ii=[], d=3, c=0,  pre=0):
             ss = list(s)
             for i in range(len(list(ss))):
                 at = ss[i]
-                node_attr_recurse(s=at, ii=ii,d=d, c=c + 1, pre=i)
+                _node_attr_recurse(s=at, ii=ii,d=d, c=c + 1, pre=i)
     return ii
 
 def read_exp(path, ftype='mzML', plot_chrom=False, n_max=1000, only_summary=False, d=4):
