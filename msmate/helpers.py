@@ -119,9 +119,9 @@ def _read_bin(k, obo_ids):
     dbin = k[child.index('binary')]
 
     if co == 'zlib':
-        d = np.frombuffer(zlib.decompress(base64.b64decode(dbin.text)), dtype=dt).tolist()
+        d = np.frombuffer(zlib.decompress(base64.b64decode(dbin.text)), dtype=dt)#.tolist()
     else:
-        d = np.frombuffer(base64.b64decode(dbin.text), dtype=dt).tolist()
+        d = np.frombuffer(base64.b64decode(dbin.text), dtype=dt)#.tolist()
     # return data and meta
     out = {'i': [{x: obo_ids[x]['name']} for x in dvars.keys() if x in obo_ids.keys()], 'd': d}
 
@@ -187,3 +187,5 @@ def _vaPar_recurse(s, ii={}, d=9, c=0, dname='accession', dval='value', ddt='all
         for i in range(len(ss)):
             _vaPar_recurse(s=ss[i], ii=ii, d=d, c=c + 1, ddt=ddt)
     return ii
+
+
