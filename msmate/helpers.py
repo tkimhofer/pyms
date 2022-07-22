@@ -114,10 +114,8 @@ def _read_bin(k, obo_ids):
     # collect metadata
     dvars = _vaPar_recurse(k, ii={}, d=3, c=0, dname='accession', dval='cvRef', ddt='-')
     dt, co, ft = _dt_co(dvars)
-
     child = _children(k)
     dbin = k[child.index('binary')]
-
     if co == 'zlib':
         d = np.frombuffer(zlib.decompress(base64.b64decode(dbin.text)), dtype=dt)#.tolist()
     else:

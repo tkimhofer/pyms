@@ -76,7 +76,7 @@ __all__ = ['ReadB',
 
 # @logIA
 @typechecked
-class ReadB():
+class ReadB:
     """Bruker experiment class and import methods"""
     def __init__(self, dpath: str, convert: bool = True,
                  docker: dict = {'repo': 'convo:v1', 'mslevel': 0, 'smode': [0, 1, 2, 3, 4, 5], 'amode': 2,
@@ -829,7 +829,7 @@ class Viz:
     Note that this class is designed for use with `MsExp`.
     """
 
-    def chromg(self, tmin: float = None, tmax: float = None, ctype: list = ['tic', 'bpc', 'xic'], xic_mz: float = [],
+    def chromg(self, tmin: float = None, tmax: float = None, ctype: list = ['tic', 'bpc'], xic_mz: float = [],
                xic_ppm: float = 10):
         df_l1 = self.dfd[self.ms0string]
         if df_l1.shape[0] == 0: raise ValueError('mslevel 1 in df does not exist or is not defined')
@@ -1311,7 +1311,7 @@ class Viz:
 
         if lev == 3:
             for i in l3_ffeat:
-                print(i)
+                # print(i)
                 fid = float(i.split(':')[1])
                 f1 = self.feat[i]
                 if f1['quant']['raw'] > iq:
@@ -1380,7 +1380,9 @@ class IsoPat:
 
     def igr(self):
         self._l3toDf()
-        au = self.l3Df
+        au = self.l3Df.sort_values('smbl', ascending=False)
+        import matplotlib.pyplot as plt
+        plt.plot(au.raw, au.smbl)
         rtd = 0.6  # fwhm proportion
         fset = set(au.index.values)
         fgr = []
@@ -1397,6 +1399,7 @@ class IsoPat:
             if sub.shape[0] <= 1:
                 continue
 
+            # get max intensity of feature group as this is likely to be M0
             sidx = sub.index[np.argmax(sub['smbl'].values)]
             intens1 = self.feat[sidx]['fdata']['I_sm_bline']
             st1 = self.feat[sidx]['fdata']['st']
@@ -1405,9 +1408,9 @@ class IsoPat:
             sub1['fgr'] = c
             sub1 = sub1.sort_values('mzMaxI')
             # tt=(sub1, mzD_m1(sub1))
-            ip2=(self.mzD_m1(sub1))
+            ip2 = (self.mzD_m1(sub1))
 
-            if ip2.shape[0]>1:
+            if ip2.shape[0] > 1:
                 print(ip2)
                 print('___')
             c += 1
@@ -1416,6 +1419,79 @@ class IsoPat:
             fset = fset - set(sub1.index.values)
         return pd.concat(fgr)  # candidate isotopologues
 
+        # au = self.l3Df.sort_values('smbl', ascending=False)
+        # import matplotlib.pyplot as plt
+        # # plt.scatter(au.raw, au.smbl)
+        #
+        #
+        # rtd = 0.6  # fwhm proportion
+        # fset = set(au.index.values)
+        # fset = dict.fromkeys(au.index.values)
+        #
+        # fgr = []
+        # c = 0
+        # spat = dict()
+        # # for i in fset:
+        # while len(fset)> 0:
+        #     i=list(fset.keys())[0]
+        #     print(i)
+        #
+        #     intens = self.feat[i]['fdata']['I_sm_bline']
+        #     st = self.feat[i]['fdata']['st']
+        #     out = self._fwhmBound(intens, st, rtDelta=rtd)
+        #
+        #     if out is None:
+        #         fset.pop(i)
+        #         continue
+        #
+        #     sub = au[(au['rtMaxI'] < out[0]) & (au['rtMaxI'] > out[1])]
+        #     sub=sub[sub.index.isin(list(fset.keys()))]
+        #
+        #     if sub.shape[0] <= 1:
+        #         fset.pop(i)
+        #         continue
+        #
+        #     # # get max intensity of feature group as this is likely to be M0
+        #     # sidx = sub.index[np.argmax(sub['smbl'].values)]
+        #     # intens1 = self.feat[sidx]['fdata']['I_sm_bline']
+        #     # st1 = self.feat[sidx]['fdata']['st']
+        #     # out1 = self._fwhmBound(intens1, st1, rtDelta=rtd)
+        #     # sub1 = au[(au['rtMaxI'] < out1[0]) & (au['rtMaxI'] > out1[1])].copy()
+        #
+        #     # match intensities and mz values
+        #     m01 = self.mzD_m1(sub, mz_tol=0.1, a_lb=0.1)
+        #
+        #
+        #     if len(m01[1]) == 0:
+        #         fset.pop(i)
+        #         continue
+        #
+        #     spat['f' + str(c)] = {'m01': sub.loc[[m01[0]] + m01[1]]}
+        #
+        #     if sub.shape[0] <3:
+        #         [fset.pop(x) for x in [m01[0]] + m01[1]]
+        #         continue
+        #
+        #     sub2 = sub.iloc[1:].copy()
+        #     m12 = self.mzD_m1(sub2, mz_tol=0.1, a_lb=0.1)
+        #
+        #
+        #     krm = list(dict.fromkeys([m01[0]]+m01[1]+[m12[0]]+m12[1]))
+        #     [fset.pop(x) for x in krm]
+        #
+        #     spat['f'+str(c)].update({'m01': sub.loc[[m01[0]] + m01[1]], 'm02': sub2.loc[[m12[0]] + m12[1]]})
+        #
+        #     # if ip2.shape[0] > 1:
+        #     #     print(ip2)
+        #     #     print('___')
+        #     c += 1
+        #     if any(sub1['smbl'] > 1e6):
+        #         fgr.append(sub1)
+        #     fset = fset - set(sub1.index.values)
+        # return pd.concat(fgr)  # candidate isotopologues
+        #
+
+    # TODO: Solve this with recursion
     @staticmethod
     def mzD_m1(df, mz_tol=0.005, a_lb=0.05):
         df = df.sort_values('smbl', ascending=False)
@@ -1426,6 +1502,11 @@ class IsoPat:
         dmz = df['mzMaxI'].iloc[1:] - m0_mz
         imz = (dmz > (1 - mz_tol)) & (dmz < (1 + mz_tol))
         ia = df['smbl'].iloc[1:] < (m0_a * a_lb)
+
+        # return index which belong together (M0, M1)
+        return (df.index[0], df.index[np.where((imz & ia))[0]+1].tolist())
+
+
 
         return pd.concat((df.iloc[[0]], df.iloc[(np.where(imz & ia)[0]+1)]), axis=0)
 
@@ -1452,7 +1533,7 @@ class MsExp(MSstat, Fdet, Viz, IsoPat):
     def bruker(cls, dpath: str, convert: bool = True, docker: dict = {'repo': 'convo:v1', 'mslevel': 0, 'smode': [0, 1, 2, 3, 4, 5], 'amode': 2, 'seg': [0, 1, 2, 3], }):
         # cls.__name__ = 'mzml from bruker directory'
         da = ReadB(dpath, convert, docker)
-        return cls(dpath = da.dpath, fname=da.fname, mslevel=da.mslevel, ms0string=da.ms0string, ms1string=da.ms1string, xrawd=da.xrawd, dfd=da.dfd, summary=da.summary)
+        return cls(dpath = da.dpath, fname=da.fname, mslevel=da.mslevel, ms0string=da.ms0string, ms1string=da.ms1string, xrawd=da.xrawd, dfd=da.dfd, summary=False)
 
     @classmethod
     def rM(cls, da: ReadM):
@@ -1464,7 +1545,7 @@ class MsExp(MSstat, Fdet, Viz, IsoPat):
     def rB(cls, da: ReadB):
         # cls.__name__ = 'data import from msmate ReadB'
         return cls(dpath=da.dpath, fname=da.fname, mslevel=da.mslevel, ms0string=da.ms0string, ms1string=da.ms1string,
-                   xrawd=da.xrawd, dfd=da.dfd, summary=da.summary)
+                   xrawd=da.xrawd, dfd=da.dfd, summary=False)
 
     # @logIA
     def __init__(self, dpath:str, fname:str, mslevel:str, ms0string:str, ms1string:Union[str, None], xrawd:dict, dfd:dict, summary:bool):
