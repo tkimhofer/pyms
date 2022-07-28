@@ -1,428 +1,182 @@
-# import sys
-# sys.path.append('./')
-# from msmate import ms_exp
-import time
 import msmate as ms
-import matplotlib.pyplot as plt
-import numpy as np
-from importlib import reload
-reload(ms)
-# from sklearn.cluster import DBSCAN, OPTICS
+
+
+ms.ch
+# conversion of proprietary format to mzml
+# msconvert data/* -o my_output_dir/
+
+
+## directory of mzml files
+path='/path/to/mzmlfiles/'
+# path='/Volumes/Backup Plus/Cambridge_RP_POS'
+path='/Users/TKimhofer/Downloads/converted/'
+path='/Users/TKimhofer/Desktop/'
+
+
+##############
+# detect mzml files
+##############
+
+# instantiate MS experiment object (detects all mzml files in specified directory)
+dataSet=ms.ExpSet(path, msExp=ms.msExp, ftype='mzML', nmax=100)
+dataSet.files
+
+dataSet=ms.ExpSet(path, msExp=ms.msExp, ftype='d', nmax=3)
+
+
+# you can use a prepared dataSet object for this tutorial (20 RPNEG spectra)
+# import pickle
+# pickle.dump([dataSet.tic, dataSet.tic_st], open( path+"/first20_tics_msmate.p", "wb" ) )
+# dataSet = pickle.load( open("/Volumes/Backup Plus/Cambridge_RP_POS/first20_msmate.p", "rb" ) )
+
+# check out the detailed file list using PyCharm variable panel
+# dataSet.files
+
+
+##############
+# read in lc-ms data
+##############
+
+# option 1: read-in only selected experiments using pattern matching:
+dataSet.read(pattern='RAI04')
+
+# option 2: read-in all experiments
+dataSet.read()
+
+##############
+# visualise chromatograms ...
+##############
+
+# ...for a single experiment (in Python index starts at zero (not at 1 like in R))....
+dataSet.exp[0].plt_chromatogram(ctype=['tic', 'bpc'])
+dataSet.exp[1].plt_chromatogram(ctype=['tic', 'bpc'])
+dataSet.exp[19].plt_chromatogram(ctype=['tic', 'bpc'])
+
+# ... for all experiments - check for significant retention time shifts
+dataSet.get_bpc(plot=True)
+dataSet.get_tic(plot=True)
+
+
 import pandas as pd
+df = pd.read_csv('rpos_npc.csv', index_col=0)
 
-# path='/Users/torbenkimhofer/Rproj/cam_cov_lcms/dat/'
-# path='/Volumes/Backup\ Plus/hayley/'
-path='/Volumes/Backup\ Plus/Cambridge_RP_NEG/'
-path='/Users/tk2812/py/msfiles/'
+##############
+# compare chromatogram signals and select representative LC-MS experiment
+##############
+# peak picking parametmrs should be optimised for a spectrum that is representative for most spectra in a study
+# select TWO representative experiments (one for parameter testing, the other one for validation)
+# clustering analysis of a chromatogram can be used to find out which spectrum is representative
+# in this examples I cluster the base peak chromatograms, since this is less sensitive to noise
+dataSet.chrom_dist(ctype='bpc', minle=3)
 
+# visualise distance tree for individual chromatograms
+ax = dataSet.chrom_btree('bpc', index=0)
+ax1 = dataSet.chrom_btree('bpc', index=1, ax=ax, colour='red')
+ax2 = dataSet.chrom_btree('bpc', index=2, ax=ax1, colour='blue')
 
 
 
-d = ms.list_exp(path)
-test=ms.ExpSet(path, ms.msExp)
-test.read(pattern='DDA')
+##############
+# perform peak picking with representative sample
+##############
 
-test.exp[1].plt_chromatogram(tmin=None, tmax=None, type=['tic', 'bpc', 'xic'], xic_mz=50, xic_ppm=10)
-(test.exp[0]).xic(mz=100, ppm=10, rt_min=None, rt_max=None)
+# peak picking parameter optimisation
+# select ppm window where there are clear signals - can be identified with TIC
+dataSet.exp[0].plt_chromatogram(ctype=['tic'])
 
+# plot selection of ms level 1 data (using rt and mz window)
+# q_noise: quantile probability of noise intensity (typically 0.95 works well)
 
+df.columns
 
-for x in test.exp:
-    x.plt_chromatogram()
+rt_win=15
+mz_win =4
+i=28
+selection={'mz_min': df.iloc[i].mzMin - mz_win , 'mz_max': df.iloc[i].mzMax + mz_win, 'rt_min': df.iloc[i].rt - rt_win, 'rt_max': df.iloc[i].rt + rt_win}
+selection
+print(df.iloc[i])
+dataSet.exp[0].vis_spectrum(q_noise=0.99, selection=selection)
 
 
-test.exp
+dataSet.exp[0].vis_spectrum(q_noise=0.89, selection={'mz_min':120, 'mz_max':140, 'rt_min':355, 'rt_max': 395})
 
 
+# peak picking using a density based clustering algorithm
+# peak picking parameter description:
+# clustering algorithm has four parameters: eps: minimum data point distance, min_samples, st_adj
+# eps: minimum distance from one point to another. If two points are within eps, then both points areassigned to the same cluster
+# st_adj: adjustment factor for the scantime (st) dimension. Higher st_adj values reduce the distance between two data points in time dimension, \
+# scatime adjustment is needed to account for different spectrometer parameters (e.g. 10 Hz -> 10 ms level 1 scans per second vs 20 Hz -> 20 ms level 1 scans per second)
+# min_samples: minimum of core data points in neighbourhood eps. A core point is a data point that has a minimum of min_samples of core neighbours in its eps neighbour, \
 
-exp = ms.msExp(d.files[3])
 
+# clustering paramaters - experiment 1
+dataSet.exp[0].peak_picking(st_adj=6e2, q_noise=0.75, dbs_par={'eps': 0.0041, 'min_samples': 2}, selection=selection,
+                            qc_par = {'st_len_min': 3, 'raggedness': 0.55, 'non_neg': 0.8, 'sId_gap': 0.15, 'sino': 1, 'ppm': 25})
+dataSet.exp[0].vis_feature_pp(selection=selection,  lev =3)
 
+el=ms.element_list()
+calc_mzIsotopes(formula='C3O3H6', el=el)
+# for a given molecular species, predict mz & isotopic pattern and search in peak list
 
-dd = ms.ms_exp(path, fending='mzML')
 
-dd.read_exp(fidx=0, mslevel='0', print_summary=True)
-dd.plt_chromatogram()
 
+self=dataSet.exp[1]
 
-rr=dd
-rr.read_exp(fidx=1, mslevel='0', print_summary=True)
-rr.plt_chromatogram()
+self.vis
 
+# clustering paramaters - experiment 1, different location
+selection={'mz_min':100, 'mz_max':800, 'rt_min': 120, 'rt_max': 6000}
+selection={'mz_min':0, 'mz_max':1200, 'rt_min': 0, 'rt_max': 6000}
+dataSet.exp[0].vis_spectrum(q_noise=0.75, selection=selection)
 
+st_adj=6e2
+q_noise=0.75
+dbs_par={'eps': 0.0171, 'min_samples': 2}
+self=dataSet.exp[0]
 
-selection={'mz_min':0, 'mz_max':1530, 'rt_min': 50, 'rt_max': 100}
-rr.vis_spectrum(q_noise=0.95, selection=selection)
-dd.vis_spectrum(q_noise=0.95, selection=selection)
+dataSet.exp[0].peak(st_adj=6e2,
+                            q_noise=0.75,
+                            dbs_par={'eps': 0.0171, 'min_samples': 2},
+                            selection=selection,
+                            qc_par={'st_len_min': 7, 'raggedness': 0.15, 'non_neg': 0.8, 'sId_gap': 0.15, 'sino': 50, 'ppm': 15})
 
-import time
 
-selection_all={'mz_min':None, 'mz_max':None, 'rt_min': None, 'rt_max': None}
-pp_start  = time.time()
-dd.peak_picking(st_adj=6e2, q_noise=0.95, dbs_par={'eps': 0.02, 'min_samples': 2}, selection=selection, plot=True)
-pp_end = time.time()
+# clustering paramaters - experiment 2
+dataSet.exp[0].peak_picking(st_adj=6e2, q_noise=0.75, dbs_par={'eps': 0.0171, 'min_samples': 2}, selection=selection, plot=True)
+self=dataSet.exp[0]
+dataSet.exp[0].vis_spectrum(q_noise=0.85, selection=selection)
+dataSet.exp[1].vis_feature_pp(selection=selection, rt_bound=1, mz_bound=0.1)
 
-print(pp_end - pp_start)
 
+##############
+# peak pick all of the samples
+##############
+dataSet.pick_peaks(st_adj=601, q_noise=0.5, dbs_par={'eps': 0.00311, 'min_samples': 2}, selection=selection,  multicore=False)
 
-fig, ax = dd.vis_features(selection=selection, rt_bound=0.51, mz_bound=0.1)
-ax.scatter(dd.fs.rt_maxI, dd.fs.mz_maxI)
+selection={'mz_min':250, 'mz_max':800, 'rt_min': 10, 'rt_max': 800}
+selection={'mz_min':250, 'mz_max':800, 'rt_min': 80, 'rt_max': 120}
+selection={'mz_min':350, 'mz_max':550, 'rt_min': 350, 'rt_max': 480}
 
-dd.find_isotopes()
+dataSet.exp[0].vis_feature_pp(selection=selection, rt_bound=0, mz_bound=0)
+self=dataSet.exp[0]
+dataSet.exp[1].vis_feature_pp(selection=selection, rt_bound=1, mz_bound=0.1)
 
-len(dd.isotopes)
-gz1=dd.isotopes[3]
-dd.vis_ipattern( gz1, b_mz=4, b_rt=30, rt_bound=0.51, mz_bound=0.2)
-dd.vis_ipattern(gz1, b_mz=10, b_rt=10, rt_bound=0.51, mz_bound=0.2)
 
-# min_samples: min number of core or neighbour samples reachable from a sample in order to be core point, including itself
-# non-core samples are samples that are also density reachable but not have min_samples neighbours
 
-# for ms:
-# min_samples: exceedes minimum number of feature data points
-# eps: distance value that allows to reach min-samples-1 (self) from position
-# if mz_accuracy is 0.001, st spacing=1, signal is n_st=10 and min_samples=5
-# to reach 4 samples: eps= 0.001*4, with st spacing normalised such that n_st=0.001: x_st / 1/0.001
-mz_acc = np.abs(.16557 - .1680)
-st_spacing = 1
-min_samples = 5
-eps = (mz_acc * (min_samples-1))*1.1
-adj = (st_spacing / (mz_acc)) * 5.1
 
-out.peak_picking(selection=selection, dbs_par={'eps': eps, 'min_samples': min_samples-1}, st_adj=adj, q_noise=0.6)
-out.vis_features(selection=selection, rt_bound=0.021, mz_bound=0.1)
 
+##############
+# vis peaks across spectra
+##############
 
-selection={'mz_min':500, 'mz_max':1000, 'rt_min': 5*60, 'rt_max': 9*60}
-out.peak_picking(selection=selection, dbs_par={'eps': eps, 'min_samples': min_samples}, st_adj=adj*2, q_noise=0.95)
+dataSet.vis_peakGroups()
+# definition of sample groups and variation limnits to cluster features across samples
 
-out.find_isotopes()
-len(out.isotopes)
 
-gz1=out.isotopes[4]
-out.vis_ipattern( gz1, b_mz=4, b_rt=30, rt_bound=0.04, mz_bound=0.2)
 
-
-import sqlite3
-sql_connect = sqlite3.connect('/Users/tk2812/Downloads/MassBank.sql')
-
-cursor = sql_connect.cursor()
-cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-print(cursor. fetchall())
-
-
-
-query = "SELECT * FROM factbook;"
-
-#plt.scatter(out.scanid, out.mz)
-#plt.plot(out.fs.ppm)
-
-
-
-# automate dbs parameterisation
-selection={'mz_min':625, 'mz_max':632, 'rt_min':205, 'rt_max':801}
-out.vis_spectrum(q_noise=0.9, selection=selection)
-
-
-out=dd
-X=out.Xf
-plt.scatter(X[:,0], X[:,1], c=X[:,2])
-
-
-d_mz = 0.0001
-d_st = 5
-st_adj = d_st/(d_mz)
-
-X1 = X.copy()
-X1[:, 0] = X1[:, 0] / (st_adj*2)
-dbs = OPTICS(eps=d_mz, min_samples=3, metric='euclidean').fit(X1)
-
-plt.scatter(X[:,0], X[:,1], c=dbs.labels_)
-
-idx=np.where(dbs.labels_==100)
-plt.scatter(X[idx,0], X[idx,1], c=dbs.labels_[idx])
-
-
-dbs = DBSCAN(eps=d_mz, min_samples=5).fit(X)
-print(np.unique(dbs.labels_))
-
-d_mz_a = np.linspace(0.0001, 0.1, 100)
-st_adj_a = np.linspace(1, 2000, 200)
-
-
-import hdbscan as hdb
-cobj = hdb.HDBSCAN(algorithm='best', alpha=1.0, approx_min_span_tree=True,
-    gen_min_span_tree=False, leaf_size=40, memory=Memory(cachedir=None),
-    metric='euclidean', min_cluster_size=5, min_samples=None, p=None)
-
-cobj.fit(X[:,0:2])
-
-
-
-# create the mesh based on these arrays
-pp=np.array(np.meshgrid(d_mz_a, st_adj_a)).T.reshape(-1,2)
-plt.scatter(pp[:,0], pp[:,1])
-
-X=X[:,0:2]
-Xreserve=X
-plt.scatter(X[:,0], X[:,1], c=tt[:,2])
-
-ncl=[]
-for i in range(pp.shape[0]):
-    print(i)
-    X1=X.copy()
-    X1[:, 0] = X1[:, 0] / 1e9 # 2.1 e-6
-    dbs = DBSCAN(eps=0.0015, min_samples=10).fit(X1)
-    # dbs = OPTICS(eps=pp[i,0], min_samples=30).fit(X1)
-
-    ncl.append(len(np.unique(dbs.labels_)))
-
-plt.plot(ncl)
-plt.scatter(X[:,0], X[:,1], c=dbs.labels_)
-
-X=out.window_mz_rt(out.Xraw, selection)
-
-# get distances of feature in mz dimension
-
-d_mz = np.abs(.37261 - .37749)
-d_st = 4
-st_adj = (d_st/(d_mz)) # the higher adjustment factor, the closer together are scantimes
-print(st_adj)
-
-d_mz=0.01
-st_adj=600
-out.peak_picking(selection=selection, dbs_par={'eps': d_mz, 'min_samples': 3}, st_adj=st_adj,  q_noise=0.8)
-out.vis_features(selection=selection)
-
-out.find_isotopes()
-vis_ipattern(self, fgr, b_mz=10, b_rt=10, rt_bound=0.51, mz_bound=0.001)
-
-
-# visualise selection of peak picked data with isotopic patterns
-# define class
-
-
-# synsthetic data
-from scipy.stats import norm
-
-e.rvs(10)
-signl=300
-noise=0.003
-e=norm(signl, 5)
-
-signal= np.concatenate([e.rvs(20), signl+norm(0, noise).rvs(10), e.rvs(10)])
-signal= np.concatenate([e.rvs(20), np.ones(10)*signl, e.rvs(10)])
-
-x_sig=np.arange(40)
-
-plt.scatter(x_sig, signal)
-
-C = np.array([x_sig, signal]).T
-
-from sklearn.cluster import DBSCAN
-from sklearn.metrics.pairwise import euclidean_distances as ed
-# min_samples: min number of core or neighbour samples reachable from a sample in order to be core point, including itself
-# non-core samples are samples that are also density reachable but not have min_samples neighbours
-
-# for ms:
-# min_samples: exceedes minimum number of feature data points
-# eps: distance value that allows to reach min-samples-1 (self) from position
-# if mz_accuracy is 0.001, st spacing=1, signal is n_st=10 and min_samples=5
-# to reach 4 samples: eps= 0.001*4, with st spacing normalised such that n_st=0.001: x_st / 1/0.001
-
-
-C1=C.copy()
-C1[:,0]=C[:,0]/2
-
-plt.scatter(C1[:, 0], C1[:,1])
-plt.scatter(C[:, 0], C[:,1])
-
-3/2
-C=C1
-db = DBSCAN(eps=3, min_samples=7, algorithm='brute').fit(C1)
-plt.scatter(C1[:, 0], C1[:,1], c=db.labels_)
-plt.scatter(C1[db.core_sample_indices_, 0], C1[db.core_sample_indices_,1])
-
-db.components_
-db.n_features_in_
-
-idx=np.where(db.labels_==0)[0]
-dd=ed(C[idx,:], C[idx,:])
-plt.imshow(dd)
-
-np.triu(dd)
-# min_samples: core points
-# for straight line with d 1: if n_samples:
-# 4, 5 (4/5 cores + 2 neigh), then min_d must be >=2
-# 6 core sapmple, then min_d must be >=2
-
-
-
-
-
-plt.scatter(C[:,0], C[:,1], c=db.labels_)
-
-plt.scatter(pl1.mz_mean.values, pl1.mz_mean.values - pl1.iloc[i].mz_mean)
-
-
-
-
-pl1.rt_min
-
-
-def peak_picking(mz, I, df, st_adj=6e2, q_noise=0.89):
-    import numpy as np
-    import pandas as pd
-    from sklearn.cluster import DBSCAN
-
-    scans=np.concatenate([np.ones(len(mz[i]))*df.scan_id.values[i] for i in range(len(mz))])
-    stime=np.concatenate([np.ones(len(mz[i]))*df.scan_start_time.values[i] for i in range(len(mz))])
-    mmz=np.concatenate(mz)
-    Ic=np.concatenate(I)
-
-    # define X
-    X=np.array([scans/st_adj, mmz, Ic]).T
-
-    # remove noise points
-    thres=np.quantile(X[...,2], q=q_noise)
-    X1=X[Ic>thres, ...]
-    # plt.scatter(X1[...,0], X1[...,1], c=X1[...,2], s=2)
-
-
-    # reduce size of matrix for testing
-    # idx=np.where((X1[...,1]>418) & (X1[...,1]<828) & \
-    #              ((X1[...,0]) > 4.5) & ((X1[...,0] )  < 10.8 ))[0]
-    # X2=X1[idx,...]
-    # plt.scatter(X2[...,0], X2[...,1])
-    X2=X1
-
-    dbs = DBSCAN(eps=0.02, min_samples=2)
-    dbs.fit(X2[...,0:2])
-    res=np.unique(dbs.labels_, return_counts=True)
-    print('Number of clusters: ' + str(len(res[0])))
-
-    # check if feature intensity are gaussian-like
-    fs = feat_summary(dbs, X2, st_adj, st_len_min=10, plot=False, mz_bound=0.001, rt_bound=3)
-    fs = est_intensities(X2, dbs, fs)
-
-    return fs
-
-
-
-print(np.sort(ff.ppm))
-print(np.where(ff.st_span > 0))
-# plt.scatter(ff.n, ff.ppm, c=ff.st_span)
-plt.scatter(ff.mz_min, ff.mz_max, c=np.log(ff.st_span), s=1)
-plt.scatter(ff.ppm, ff.mz_mean, c=np.log(ff.st_span), s=1)
-
-ff=ff[ff.n > 10]
-
-ff[ff.mz_max-ff.mz_min < 10]
-
-
-ff.iloc[np.where((mmz> 600) & (mmz < 720))[0]]
-
-iix=np.where((mmz1> 600) & (mmz1 < 720))[0]
-plt.scatter(X1[1, iix],X1[0,iix],  c=dbs.labels_[iix], s=1)
-
-
-fn=ff.iloc[np.where((ff.st_span )>10 & (ff.elut <20))[0],]
-
-fn.iloc[np.argsort(fn.ppm)].iloc[0:4].T
-
-# summaryise each cluster
-def cl_summary(X, cl_id=7, st_adj=st_adj):
-    # X is nx3 array with dim 2: scatime/adj, m/z, int
-    idx=np.where(dbs.labels_ == cl_id)[0]
-    mz_min=np.min(X[idx,1])
-    mz_max=np.max(X[idx, 1])
-    mz_mean = np.mean(X[idx, 1])
-    dppm= (np.std(X[idx, 1]) / mz_mean) * 1e6
-
-    rt_mean = np.mean(X[idx,0]*st_adj)
-    rt_min = np.min(X[idx,0]*st_adj)
-    rt_max = np.max(X[idx,0]*st_adj)
-
-    # st_min = np.min(X[1,idx])
-    # st_max = np.max(X[1, idx])
-
-    od ={ 'n': len(idx), \
-          'mz_mean': round(mz_mean, 4) , \
-          'rt_mean': rt_mean, \
-          'st_span': len(np.unique(X[idx,0])),\
-          'ppm': np.round(dppm), 'mz_min': np.round(mz_min, 4), 'mz_max': np.round(mz_max, 4),\
-          'elut':rt_max - rt_min, 'rt_min': rt_min, 'rt_max':rt_max}
-
-    return od
-
-
-
-
-
-
-
-# m/z bin data
-acc=0.1 # dev in ppm
-mzra=np.array([[np.max(x), np.min(x)] for x in mz])
-mzmin=np.min(mzra[:1])-1
-mzmax=np.max(mzra[:1])+1
-
-# bin m/z and reshape into matrix
-bins = np.linspace(mzmin, mzmax, round((mzmax-mzmin)/acc))
-X=np.zeros((len(bins), df.shape[0]))
-for i in range(len(mz)):
-    out = np.digitize(mz[i], bins)
-    doub=np.unique(out, return_counts=True) # counts for each bind
-    lev=np.where(doub[1]>1)[0] # where count > 1
-    lev_un=np.unique(out) # unique bins for s
-    Imzn=np.zeros(len(np.unique(out))) # new intensity vector
-    Imzn[np.where(doub[1]==1)[0]]=I[i][np.where(doub[1]==1)[0]]
-
-    for j in lev:
-        idx=np.where(out == doub[0][j])[0] # lev
-        idx_un=np.where(lev_un == doub[0][j])[0]
-        Imzn[idx_un]=np.max(I[i][idx])
-
-    X[lev_un, i]=Imzn
-
-np.max(mz[i])
-
-
-out=np.zeros((8, len(mz[6])))
-c=0
-r=0
-for j in [-4, -3, -2, -1, 1, 2, 3, 4]:
-    for i in range(len(mz[6])):
-        out[c,i]=np.sort(np.abs(mz[6-j]-mz[6][i]))[0]
-        r +=1
-    c+=1
-
-
-
-plt.imshow(np.log(X))
-plt.plot(np.sum(X, 0)) # tic
-plt.plot(np.max(X, 0)) # bpc
-
-plt.plot(np.sort(X))
-thres=np.quantile(X[X>0], q=0.99)
-
-np.sum(X>0)/np.sum((X >=0))
-np.sum(X>thres)/np.sum((X >=0))
-
-X[X<=thres]=0
-
-
-
-from sklearn.cluster import DBSCAN
-
-dbs = DBSCAN(eps=3, min_samples=10)
-dbs.fit(X)
-
-clustering.labels_
-
-plt.plot(np.sum(X, 1))
-
-
-np.max([np.max(x) for x in mz])
-
-plt.plot(mz[0])
+##########
+# peak grouping /filtering -> what setup is useful to ST/Annie?
+# PCA/O-PLS modelling
+# mslevel2 and db annot for met id-ing
+##########
