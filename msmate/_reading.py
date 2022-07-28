@@ -36,6 +36,8 @@ import collections
 # import itertools
 
 from msmate.helpers import _collect_spectra_chrom, _get_obo, _children, _node_attr_recurse
+from msmate.helpers import _collect_spectra_chrom, _get_obo, _children, _node_attr_recurse
+from msmate._isoPattern import _findIsotopes #IsoPat,
 
 __all__ = ['ReadB',
            'ReadM',
@@ -538,13 +540,13 @@ class Fdet:
             :
         """Feature detection.
 
-        Perform feature detection using dbscan and signal qc criteria.
+        Perform feature detection using dbscan and signal qc filters.
 
         Features are detected in sID/mz dimensions after scaling the mz dimension and classified into four different quality categories:
-        L0: All features detected
-        L1: Features comprising of n or more data points (`st_len_min`)
-        L2: Features that do not pass one or more of the defined quality filters (see below)
-        L3: Features that pass all quality filters (see below)
+            L0 - All features (unfiltered)
+            L1 - Features comprising of n or more data points (`st_len_min`)
+            L2 - Features that do not pass one or more of the defined quality filters (see below)
+            L3 - Features that pass all quality filters (see below)
 
         Quality filter:
 
@@ -554,13 +556,13 @@ class Fdet:
             sino: Minimum signal-to-noise ratio (noise determined locally)
             raggedness: Quantifies the degree of intensity raggeness of a feature (`float` {0-1} with zero meaning monotonic in/decrease before/after peak maximum)
 
-            Args:
-                mz_adj: Multiplicative adjustment factor for the m/z dimension (`float`)
-                q_noise: Noise intensity threshold provided as quantile probability (`float`)
-                dbs_par: dbscan parameters as dictionary (`eps` and `min_samples)
-                selection: M/z and scantime (in sec) window
-                qc_par: Feature quality filter parameters as dictionary (see Details)
-                qcm_local: `bool` indicating if quantile intensity thresh. should be calculated locally in m/z and st window or globally
+        Args:
+            mz_adj: Multiplicative adjustment factor for the m/z dimension (`float`)
+            q_noise: Noise intensity threshold provided as quantile probability (`float`)
+            dbs_par: dbscan parameters as dictionary (`eps` and `min_samples)
+            selection: M/z and scantime (in sec) window
+            qc_par: Feature quality filter parameters as dictionary (see Details)
+            qcm_local: `bool` indicating if quantile intensity thresh. should be calculated locally in m/z and st window or globally
         """
         s0 = time.time()
         self.mz_adj = mz_adj
@@ -606,7 +608,6 @@ class Fdet:
         # s3 = time.time()
         self._feat_summary1()
         s4 = time.time()
-
         print(f'total time pp (min): {np.round((s4-s0)/60, 1)}')
 
     def _cls(self, cl_id): #Xf, qc_par
@@ -703,7 +704,11 @@ class Fdet:
         # minimum last points minu
         y_bl = ((np.min(ysm[-3:]) - np.min(ysm[0:3])) / (xsm[-1] - xsm[0])) * (xsm - np.min(xsm)) + np.min(ysm[0:3])
         ybcor = ysm - y_bl
+
+        bcor_argmax = np.argmax(ybcor)
         bcor_max = np.max(ybcor * ysm_max)
+
+        descr.update({'mzMaxI': mz[bcor_argmax], 'rtMaxI': st[bcor_argmax]})
 
         fdata.update({'I_sm_bline': ybcor * ysm_max, 'I_smooth': ysm * ysm_max, 'mz': mz})
         nneg = np.sum(ybcor >= (-0.05)) / len(ysm)
@@ -801,6 +806,7 @@ class Fdet:
             # raise ValueError('No L3 features found')
             print('No L3 features found')
         else:
+            self._l3toDf()
             print(
                 f'Number of L3 features: {len(self.feat_l3)} ({np.round(len(self.feat_l3) / (len(self.feat_l2) + len(self.feat_l3)) * 100, 1)}%)')
 
@@ -1186,6 +1192,7 @@ class Viz:
         return ["%.2f" % z for z in V]
 
         # @log
+
     def vizpp(self, selection: Union[dict, None] = None, lev: int = 3):
         """Visualise feature (peak picked) data.
 
@@ -1210,6 +1217,14 @@ class Viz:
             if isinstance(ax, type(None)):
                 fig = plt.figure()
                 ax = fig.add_subplot(111)
+
+            print(id)
+            fwhm = self._fwhmBound(str(id), rtDelta=1) #(ul1, ll1)
+            # print(fwhm)
+            ax.vlines(fwhm[0], 0, np.max(fdict['fdata']['I_smooth']))
+            ax.vlines(fwhm[1], 0, np.max(fdict['fdata']['I_smooth']))
+            iid=fdict['qc']['icent']
+            ax.scatter(fdict['fdata']['st'][iid], fdict['fdata']['I_sm_bline'][iid], c='red')
 
             ax.plot(fdict['fdata']['st'], fdict['fdata']['I_raw'], label='raw', linewidth=0.5, color='black',
                     zorder=0)
@@ -1307,7 +1322,7 @@ class Viz:
                                     bbox=dict(facecolor=a_col, alpha=0.3, boxstyle='circle', edgecolor='white',
                                               in_layout=False),
                                     wrap=False, picker=True, fontsize=fsize)
-            _vis_feature(fdict=self.feat[ii], id=ii, ax=axs[0])
+            # _vis_feature(fdict=self.feat[ii], id=ii, ax=axs[0])
 
         if lev == 3:
             for i in l3_ffeat:
@@ -1346,12 +1361,12 @@ class Viz:
                 # print('id:' + str(ids))
                 axs[0].clear()
                 axs[0].set_title('')
-                _vis_feature(self.feat['id:' + ids], id=ids, ax=axs[0], add=False)
+                _vis_feature(self.feat['id:' + ids], id='id:' + ids, ax=axs[0], add=False)
                 event.canvas.draw()
             if event.mouseevent.button is MouseButton.RIGHT:
                 # print('right click')
                 # print('id:' + str(ids))
-                _vis_feature(self.feat['id:' + ids], id=ids, ax=axs[0], add=True)
+                _vis_feature(self.feat['id:' + ids], id='id:' + ids, ax=axs[0], add=True)
                 event.canvas.draw()
 
         cid1 = fig.canvas.mpl_connect('pick_event', p_text)
@@ -1359,156 +1374,333 @@ class Viz:
         axs[1].yaxis.offsetText.set_visible(False)
         axs[1].yaxis.set_label_text(r"$\bfm/z$")
 
-class IsoPat:
+    def vizIso(self, selection: Union[dict, None] = None):
+        """Visualise feature (peak picked) data.
 
-    @staticmethod
-    def _fwhmBound(intens, st, rtDelta=1 - 0.4):
-        idxImax = np.argmax(intens)
-        ifwhm = intens[idxImax] / 2
+        Interactive scantime vs m/z plot with features highlighted, m/z and Intensity plot of selected features
 
-        if (idxImax == 0) or (idxImax == len(intens)):
-            return None
+        Args:
+            selection: M/z and scantime (in sec) window
+            lev: Feature level for marking features (`2` or `3`)
+        """
 
-        st_imax = st[idxImax]
+        if selection is None:
+            selection = self.selection
 
-        ll = np.max(st[(intens < ifwhm) & (st <= st_imax)])
-        ul = np.min(st[(intens > ifwhm) & (st >= st_imax)])
-        ll1 = st_imax - ((ul - ll) * rtDelta) / 2
-        ul1 = st_imax + ((ul - ll) * rtDelta) / 2
+        # TODO:
+        # label feature with id in m/z Int plot
+        # two panel plot: bottom m/z over st, top: st vs intentsity upon click on feature
+        # basically like vis spectrum but including rectangles and all points but those in fgr feature(s) are s=0.1 and c='grey
 
-        return (ul1, ll1)
+        # @log
+        def _vis_feature(fdict, id, ax=None, add=False):
+            # idx = np.where(self.Xf[:, 6] == fdict['id'])[0]
+            if isinstance(ax, type(None)):
+                fig = plt.figure()
+                ax = fig.add_subplot(111)
 
-    def igr(self):
-        self._l3toDf()
-        au = self.l3Df.sort_values('smbl', ascending=False)
-        import matplotlib.pyplot as plt
-        plt.plot(au.raw, au.smbl)
-        rtd = 0.6  # fwhm proportion
-        fset = set(au.index.values)
-        fgr = []
-        c = 0
-        for i in fset:
-            intens = self.feat[i]['fdata']['I_sm_bline']
-            st = self.feat[i]['fdata']['st']
-            out = self._fwhmBound(intens, st, rtDelta=rtd)
+            fwhm = self._fwhmBound(id, rtDelta=1) #(ul1, ll1)
+            if fwhm is not None:
+            # print(fwhm)
+                ax.vlines(fwhm[0], 0, np.max(fdict['fdata']['I_smooth']))
+                ax.vlines(fwhm[1], 0, np.max(fdict['fdata']['I_smooth']))
+            iid=fdict['qc']['icent']
+            ax.scatter(fdict['fdata']['st'][iid], fdict['fdata']['I_sm_bline'][iid], c='red')
 
-            if out is None:
-                continue
+            ax.plot(fdict['fdata']['st'], fdict['fdata']['I_raw'], label='raw', linewidth=0.5, color='black',
+                    zorder=0)
 
-            sub = au[(au['rtMaxI'] < out[0]) & (au['rtMaxI'] > out[1])]
-            if sub.shape[0] <= 1:
-                continue
+            if fdict['flev'] == 3:
+                ax.plot(fdict['fdata']['st'], fdict['fdata']['I_smooth'], label='smoothed', linewidth=0.5,
+                        color='cyan', zorder=0)
+                # ax.plot(fdict['fdata']['st'], fdict['fdata']['I_bl'], label='baseline', linewidth=0.5,
+                #         color='black', ls='dashed', zorder=0)
+                ax.plot(fdict['fdata']['st'], fdict['fdata']['I_sm_bline'], label='smoothed bl-cor',
+                        color='black', zorder=0)
+            if not add:
+                ax.set_title(id + f',  flev: {fdict["flev"]}')
+                ax.legend()
+            else:
+                old = axs[0].get_title()
+                ax.set_title(old + '\n' + id + f',  flev: {fdict["flev"]}')
+            ax.set_ylabel(r"$\bfCount$")
+            ax.set_xlabel(r"$\bfScan time$, s")
 
-            # get max intensity of feature group as this is likely to be M0
-            sidx = sub.index[np.argmax(sub['smbl'].values)]
-            intens1 = self.feat[sidx]['fdata']['I_sm_bline']
-            st1 = self.feat[sidx]['fdata']['st']
-            out1 = self._fwhmBound(intens1, st1, rtDelta=rtd)
-            sub1 = au[(au['rtMaxI'] < out1[0]) & (au['rtMaxI'] > out1[1])].copy()
-            sub1['fgr'] = c
-            sub1 = sub1.sort_values('mzMaxI')
-            # tt=(sub1, mzD_m1(sub1))
-            ip2 = (self.mzD_m1(sub1))
+            data = np.array([list(fdict['qc'].keys()), np.round(list(fdict['qc'].values()), 2)]).T
+            column_labels = ["descr", "value"]
+            ax.table(cellText=data, colLabels=column_labels, loc='lower right', colWidths=[0.1] * 3)
+            return ax
 
-            if ip2.shape[0] > 1:
-                print(ip2)
-                print('___')
-            c += 1
-            if any(sub1['smbl'] > 1e6):
-                fgr.append(sub1)
-            fset = fset - set(sub1.index.values)
-        return pd.concat(fgr)  # candidate isotopologues
+        # which feature - define plot axis boundaries
+        Xsub = self._window_mz_rt(self.Xf, selection, allow_none=False, return_idc=False)
+        fid_window = np.unique(Xsub[7])
+        # l2_ffeat = list(compress(self.feat_l2, np.in1d([float(i.split(':')[1]) for i in self.feat_l2], fid_window)))
+        # l3_ffeat = list(compress(self.feat_l3, np.in1d([float(i.split(':')[1]) for i in self.feat_l3], fid_window)))
 
-        # au = self.l3Df.sort_values('smbl', ascending=False)
-        # import matplotlib.pyplot as plt
-        # # plt.scatter(au.raw, au.smbl)
-        #
-        #
-        # rtd = 0.6  # fwhm proportion
-        # fset = set(au.index.values)
-        # fset = dict.fromkeys(au.index.values)
-        #
-        # fgr = []
-        # c = 0
-        # spat = dict()
-        # # for i in fset:
-        # while len(fset)> 0:
-        #     i=list(fset.keys())[0]
-        #     print(i)
-        #
-        #     intens = self.feat[i]['fdata']['I_sm_bline']
-        #     st = self.feat[i]['fdata']['st']
-        #     out = self._fwhmBound(intens, st, rtDelta=rtd)
-        #
-        #     if out is None:
-        #         fset.pop(i)
-        #         continue
-        #
-        #     sub = au[(au['rtMaxI'] < out[0]) & (au['rtMaxI'] > out[1])]
-        #     sub=sub[sub.index.isin(list(fset.keys()))]
-        #
-        #     if sub.shape[0] <= 1:
-        #         fset.pop(i)
-        #         continue
-        #
-        #     # # get max intensity of feature group as this is likely to be M0
-        #     # sidx = sub.index[np.argmax(sub['smbl'].values)]
-        #     # intens1 = self.feat[sidx]['fdata']['I_sm_bline']
-        #     # st1 = self.feat[sidx]['fdata']['st']
-        #     # out1 = self._fwhmBound(intens1, st1, rtDelta=rtd)
-        #     # sub1 = au[(au['rtMaxI'] < out1[0]) & (au['rtMaxI'] > out1[1])].copy()
-        #
-        #     # match intensities and mz values
-        #     m01 = self.mzD_m1(sub, mz_tol=0.1, a_lb=0.1)
-        #
-        #
-        #     if len(m01[1]) == 0:
-        #         fset.pop(i)
-        #         continue
-        #
-        #     spat['f' + str(c)] = {'m01': sub.loc[[m01[0]] + m01[1]]}
-        #
-        #     if sub.shape[0] <3:
-        #         [fset.pop(x) for x in [m01[0]] + m01[1]]
-        #         continue
-        #
-        #     sub2 = sub.iloc[1:].copy()
-        #     m12 = self.mzD_m1(sub2, mz_tol=0.1, a_lb=0.1)
-        #
-        #
-        #     krm = list(dict.fromkeys([m01[0]]+m01[1]+[m12[0]]+m12[1]))
-        #     [fset.pop(x) for x in krm]
-        #
-        #     spat['f'+str(c)].update({'m01': sub.loc[[m01[0]] + m01[1]], 'm02': sub2.loc[[m12[0]] + m12[1]]})
-        #
-        #     # if ip2.shape[0] > 1:
-        #     #     print(ip2)
-        #     #     print('___')
-        #     c += 1
-        #     if any(sub1['smbl'] > 1e6):
-        #         fgr.append(sub1)
-        #     fset = fset - set(sub1.index.values)
-        # return pd.concat(fgr)  # candidate isotopologues
-        #
+        # cm = plt.cm.get_cmap('gist_ncar')
+        fig, axs = plt.subplots(2, 1, gridspec_kw={'height_ratios': [1, 2]}, figsize=(8, 10),
+                                constrained_layout=False)
+        fig.subplots_adjust(left=None, bottom=None, right=None, top=None, wspace=None, hspace=None)
+        axs[0].set_ylabel(r"$\bfCount$")
+        axs[0].set_xlabel(r"$\bfScan time$, s")
 
-    # TODO: Solve this with recursion
-    @staticmethod
-    def mzD_m1(df, mz_tol=0.005, a_lb=0.05):
-        df = df.sort_values('smbl', ascending=False)
+        axs[1].set_facecolor('#EBFFFF')
+        axs[1].text(1.03, 0, self.dpath, rotation=90, fontsize=6, transform=axs[1].transAxes)
 
-        m0_mz = df['mzMaxI'].iloc[0]
-        m0_a = df['smbl'].iloc[0]
+        # fill axis for raw data results
+        idcA = Xsub[2] > self.noise_thres
+        idc_above = np.where(idcA)[0]
+        idc_below = np.where(~idcA)[0]
 
-        dmz = df['mzMaxI'].iloc[1:] - m0_mz
-        imz = (dmz > (1 - mz_tol)) & (dmz < (1 + mz_tol))
-        ia = df['smbl'].iloc[1:] < (m0_a * a_lb)
+        cm = plt.cm.get_cmap('rainbow')
+        axs[1].scatter(Xsub[3, idc_below], Xsub[1, idc_below], s=0.1, c='gray', alpha=0.5)
 
-        # return index which belong together (M0, M1)
-        return (df.index[0], df.index[np.where((imz & ia))[0]+1].tolist())
+        imax = np.log(Xsub[2, idc_above])
+        psize = (imax / np.max(imax)) * 5
+        im = axs[1].scatter(Xsub[3, idc_above], Xsub[1, idc_above], c=Xsub[2, idc_above], s=psize, cmap=cm,
+                            norm=LogNorm())
+
+        # Xf
+        # 0: scanIdOri,
+        # 1: mz,
+        # 2: Int,
+        # 3: st,
+        # 4: scanIdNorm,
+        # 5: noiseBool,
+        # 6: st_adj,
+        # 7: clMem
+
+        # axs[1].scatter(Xsub[Xsub[:, 4] == 0, 3], Xsub[Xsub[:, 4] == 0, 1], s=0.1, c='gray', alpha=0.5)
+        cosl= plt.get_cmap('tab20c').colors
+
+        fid = 0
+        f = 0
+
+        isot_feat = self.l3Df.id.values
+        isot_gr = [int(x.split('_')[0]) if x is not None else None for x in self.l3Df.iPat.values]
+        ifg_count = 0
+        counter = 0
+        p = isot_gr[0]
+        for i in isot_feat:
+
+            if p is None:
+                a_col ='gray'
+            else:
+                if p != isot_gr[counter]:
+                    tt = (ifg_count +3) // 4
+                    ifg_count =  tt*4 if tt <5 else 0
+                    a_col = cosl[ifg_count]
+                    p=isot_gr[counter]
+                    ifg_count += 1
+                else:
+                    a_col = cosl[ifg_count]
+                    ifg_count += 1
+                counter += 1
+
+            fid = float(i.split(':')[1])
+            f1 = self.feat[i]
+            fsize = 6
+            mz = Xsub[1, Xsub[7] == fid]
+            if len(mz) == len(f1['fdata']['st']):
+                # im = axs[1].scatter(f1['fdata']['st'], mz,
+                #                     c=np.log(f1['fdata']['I_raw']), s=5, cmap=cm)
+                axs[1].add_patch(Rectangle(((f1['descr']['rt_min']), f1['descr']['mz_min']), \
+                                           ((f1['descr']['rt_max']) - (f1['descr']['rt_min'])), \
+                                           (f1['descr']['mz_max'] - f1['descr']['mz_min']), fc='#C2D0D6', \
+                                           linestyle="solid", color='grey', linewidth=2, zorder=0,
+                                           in_layout=True,
+                                           picker=False))
+                axs[1].annotate(i.split(':')[1], (f1['descr']['rt_max'], f1['descr']['mz_max']),
+                                bbox=dict(facecolor=a_col, alpha=1, boxstyle='circle', edgecolor='white',
+                                          in_layout=False),
+                                wrap=False, picker=True, fontsize=fsize)
+        print(i)
+        id=self.l3Df.id[self.l3Df.smbl.argmax()]
+        _vis_feature(fdict=self.feat[id], id=id, ax=axs[0])
 
 
+        def p_text(event):
+            ids = str(event.artist.get_text())
+            if event.mouseevent.button is MouseButton.LEFT:
+                # print('left click')
+                # print('id:' + str(ids))
+                axs[0].clear()
+                axs[0].set_title('')
+                _vis_feature(self.feat['id:' + ids], id='id:' +ids, ax=axs[0], add=False)
+                event.canvas.draw()
+            if event.mouseevent.button is MouseButton.RIGHT:
+                # print('right click')
+                # print('id:' + str(ids))
+                _vis_feature(self.feat['id:' + ids], id='id:' +ids, ax=axs[0], add=True)
+                event.canvas.draw()
 
-        return pd.concat((df.iloc[[0]], df.iloc[(np.where(imz & ia)[0]+1)]), axis=0)
+        cid1 = fig.canvas.mpl_connect('pick_event', p_text)
+        axs[1].set_xlabel(r"$\bfScan time$, s")
+        axs[1].yaxis.offsetText.set_visible(False)
+        axs[1].yaxis.set_label_text(r"$\bfm/z$")
+#
+# class IsoPat:
+#
+#     def _fwhmBound(self, i, rtDelta=1 - 0.4):
+#
+#         intens = self.feat[i]['fdata']['I_sm_bline']
+#         st = self.feat[i]['fdata']['st']
+#
+#         idxImax = np.argmax(intens)
+#         ifwhm = intens[idxImax] / 2
+#
+#         if (idxImax == 0) or (idxImax == len(intens)):
+#             return None
+#
+#         st_imax = st[idxImax]
+#
+#         ll = np.max(st[(intens < ifwhm) & (st <= st_imax)])
+#         ul = np.min(st[(intens > ifwhm) & (st >= st_imax)])
+#         ll1 = st_imax - ((ul - ll) * rtDelta) / 2
+#         ul1 = st_imax + ((ul - ll) * rtDelta) / 2
+#
+#         sub = self.l3Df[(self.l3Df['rtMaxI'] <= ul1) & (self.l3Df['rtMaxI'] >= ll1)]
+#
+#         if sub.shape[0] == 0: return None
+#         else: return sub
+#
+#
+#     def igr(self,  mz_tol=0.1, a_lb=0.1,  rtd = 1):
+#         # self._l3toDf()
+#         # au = self.l3Df.sort_values('smbl', ascending=False)
+#         # import matplotlib.pyplot as plt
+#         # plt.plot(au.raw, au.smbl)
+#         # rtd = 0.6  # fwhm proportion
+#         # fset = set(au.index.values)
+#         # fgr = []
+#         # c = 0
+#         # for i in fset:
+#         #     intens = self.feat[i]['fdata']['I_sm_bline']
+#         #     st = self.feat[i]['fdata']['st']
+#         #
+#         #     try:
+#         #         out = self._fwhmBound(intens, st, rtDelta=rtd)
+#         #     except:
+#         #
+#         #
+#         #     if out is None:
+#         #         continue
+#         #
+#         #     sub = au[(au['rtMaxI'] < out[0]) & (au['rtMaxI'] > out[1])]
+#         #     if sub.shape[0] <= 1:
+#         #         continue
+#         #
+#         #     # get max intensity of feature group as this is likely to be M0
+#         #     sidx = sub.index[np.argmax(sub['smbl'].values)]
+#         #     intens1 = self.feat[sidx]['fdata']['I_sm_bline']
+#         #     st1 = self.feat[sidx]['fdata']['st']
+#         #     out1 = self._fwhmBound(intens1, st1, rtDelta=rtd)
+#         #     sub1 = au[(au['rtMaxI'] < out1[0]) & (au['rtMaxI'] > out1[1])].copy()
+#         #     sub1['fgr'] = c
+#         #     sub1 = sub1.sort_values('mzMaxI')
+#         #     # tt=(sub1, mzD_m1(sub1))
+#         #     ip2 = (self.mzD_m1(sub1))
+#         #
+#         #     if ip2.shape[0] > 1:
+#         #         print(ip2)
+#         #         print('___')
+#         #     c += 1
+#         #     if any(sub1['smbl'] > 1e6):
+#         #         fgr.append(sub1)
+#         #     fset = fset - set(sub1.index.values)
+#         # return pd.concat(fgr)  # candidate isotopologues
+#
+#         self._l3toDf()
+#         #au = self.l3Df.sort_values('smbl', ascending=False)
+#         fset = dict.fromkeys(self.l3Df.index.values) # ordered by smbl
+#         c = 0
+#         spat = dict()
+#         while len(fset)> 0:
+#             i=list(fset.keys())[0]
+#             print(i)
+#             try:
+#                 sub = self._fwhmBound(i, rtDelta=rtd)
+#             except:
+#                 fset.pop(i)
+#                 continue
+#
+#             sub=sub[sub.index.isin(list(fset.keys()))] # exclude assigned ones
+#
+#             if sub.shape[0] <= 1:
+#                 fset.pop(i)
+#                 continue
+#
+#             # match intensities and mz values
+#             # use recursion
+#             m01 = self.mzD_m1(sub, i, mz_tol, a_lb)
+#
+#             if len(m01[1]) == 0:
+#                 fset.pop(i)
+#                 continue
+#
+#             spat['f' + str(c)] = {'m01': sub.loc[[m01[0]] + m01[1]]}
+#
+#             if sub.shape[0] <3:
+#                 [fset.pop(x) for x in [m01[0]] + m01[1]]
+#                 continue
+#             #
+#             # # sub[1:]
+#             # sub[sub['smbl'] < (sub['smbl'].loc[m01[1]][0] * a_lb)]
+#             #
+#             # sub2 = sub.iloc[1:].copy()
+#             m12 = self.mzD_m1(sub, m01[1][0], mz_tol=0.1, a_lb=0.1)
+#
+#
+#             krm = list(dict.fromkeys([m01[0]]+m01[1]+[m12[0]]+m12[1]))
+#             [fset.pop(x) for x in krm]
+#
+#             add = sub.loc[[m01[0]] + m01[1] + m12[1]]
+#             add['patId'] = c
+#             add['smblNorm'] = add['smbl']/add['smbl'].max()
+#             add = add[['id', 'patId', 'rtMaxI', 'mzMaxI', 'smblNorm', 'sino',  'st_span', 'ndp', 'mz_min', 'mz_max', 'npeaks', 'pprom', 'raw', 'smbl', 'icent', 'ppm',
+#        'sId_gap', 'non_neg', 'raggedness']]
+#
+#             spat.update({'f'+str(c): add})
+#
+#             c += 1
+#         self.ipat = pd.concat(spat)  # candidate isotopologues
+#
+#
+#     # TODO: Solve this with recursion -> recursion within class is tricky without using self
+#     # @staticmethod
+#     # def mzD_m1(df, mz_tol=0.005, a_lb=0.05):
+#     #     df = df.sort_values('smbl', ascending=False)
+#     #
+#     #     m0_mz = df['mzMaxI'].iloc[0]
+#     #     m0_a = df['smbl'].iloc[0]
+#     #
+#     #     dmz = df['mzMaxI'].iloc[1:] - m0_mz
+#     #     imz = (dmz > (1 - mz_tol)) & (dmz < (1 + mz_tol))
+#     #     ia = df['smbl'].iloc[1:] < (m0_a * a_lb)
+#     #
+#     #     # return index which belong together (M0, M1)
+#     #     return (df.index[0], df.index[np.where((imz & ia))[0]+1].tolist())
+#
+#     @staticmethod
+#     def mzD_m1(df, id, mz_tol=0.005, a_lb=0.05):
+#         df = df.sort_values('smbl', ascending=False)
+#
+#         m0_mz = df['mzMaxI'].loc[id]
+#         m0_a = df['smbl'].loc[id]
+#
+#         dmz = df['mzMaxI'] - m0_mz
+#         imz = (dmz > (1 - mz_tol)) & (dmz < (1 + mz_tol))
+#         ia = df['smbl'] < (m0_a * a_lb)
+#
+#         # return index which belong together (M0, M1)
+#         return (id, df.index[np.where((imz & ia))[0]].tolist())
+#
+
+
+
+
+
+        # return pd.concat((df.iloc[[0]], df.iloc[(np.where(imz & ia)[0]+1)]), axis=0)
 
 
 
@@ -1517,7 +1709,7 @@ class IsoPat:
 
 
 @typechecked
-class MsExp(MSstat, Fdet, Viz, IsoPat):
+class MsExp(MSstat, Fdet, Viz, _findIsotopes):
     """Class representing single experiment XC-MS data.
 
     Methods include read-in, feature detection and visualisation of chromatogram, ms scan and chromatographic vs ms dimension
@@ -1545,7 +1737,7 @@ class MsExp(MSstat, Fdet, Viz, IsoPat):
     def rB(cls, da: ReadB):
         # cls.__name__ = 'data import from msmate ReadB'
         return cls(dpath=da.dpath, fname=da.fname, mslevel=da.mslevel, ms0string=da.ms0string, ms1string=da.ms1string,
-                   xrawd=da.xrawd, dfd=da.dfd, summary=False)
+                   xrawd=da.xrawd, dfd=da.dfd, summary=da.summary)
 
     # @logIA
     def __init__(self, dpath:str, fname:str, mslevel:str, ms0string:str, ms1string:Union[str, None], xrawd:dict, dfd:dict, summary:bool):

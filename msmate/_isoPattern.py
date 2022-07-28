@@ -1,3 +1,139 @@
+import numpy as np
+#self = _findIsotopes(tl.feat, tl.l3Df)
+
+
+class IsoPat:
+    def __init__(self, m_fid):
+        self.c = 0
+        self.fid = {f'{self.c}': m_fid}
+
+    def add(self, m_fid):
+        self.c += 1
+        self.fid[f'{self.c}'] = m_fid
+
+class _findIsotopes:
+    def getIso(self, mz_tol=0.01, a_lb=0.2): #feat, l3Df,
+        # self.feat =feat
+        self.l3Df = self.l3Df.sort_values('smbl', ascending=False)
+        self.mz_tol = mz_tol
+        self.a_lb = a_lb
+        self.fset = dict.fromkeys(self.l3Df.index.values)
+        self.ipat = {}
+        isoID = np.repeat(None, self.l3Df.shape[0])
+        ionID = np.repeat(None, self.l3Df.shape[0])
+
+        # for each detected feature in fset, find isotopologues
+        icounter = 0
+        while len(self.fset) > 0:
+            fid = list(self.fset.keys())[0];
+            print(fid)
+            try:
+                st_prop = self._fwhmBound_iso(fid, rtDelta=1)
+            except:
+                print(fid)
+                self.fset.pop(fid)
+                continue
+
+            if st_prop is None:
+                self.fset.pop(fid)
+                continue
+
+            isto = self.getIP(m=None, df=st_prop, iid=fid, mz_tol=0.1, a_lb=0.2)
+
+            if len(isto.fid) > 1:
+                print('---')
+                self.ipat[fid] = isto
+                iids = [x.id for k,x in isto.fid.items()]
+                ils = np.where(self.l3Df.index.isin(iids))[0]
+                isoID[ils] = icounter
+                ionID[ils] = [f'{icounter}_M{i}' for i in range(len(iids))]
+                icounter += 1
+                [self.fset.pop(x) for x in iids]
+            else:
+                self.fset.pop(fid)
+
+        self.l3Df['iPat'] = ionID
+        self.l3Df = self.l3Df.sort_values('iPat')
+
+    def getIP(self, m, df, iid, mz_tol=0.1, a_lb=0.2):
+        # df are feature proposals based on st
+
+        if m is None:
+            # print('none')
+            m = IsoPat(df.loc[iid])
+            return self.getIP(m, df, iid)
+
+        m0_mz = m.fid[f'{m.c}']['mzMaxI']
+        m0_a = m.fid[f'{m.c}']['smbl']
+
+        dmz = df['mzMaxI'] - m0_mz
+        imz = (dmz > (1 - mz_tol)) & (dmz < (1 + mz_tol))
+        ia = df['smbl'] < (m0_a * a_lb)
+
+        idx = np.where((imz & ia))[0]
+
+        if len(idx) > 0:
+            # print(df.iloc[idx[0]])
+            m.add(df.iloc[idx[0]])
+            # print(df.index[idx[0]])
+            return self.getIP(m, df, df.index[idx[0]], mz_tol, a_lb)
+
+        # print('done')
+        return m
+
+
+    def _fwhmBound_iso(self, i, rtDelta=1 - 0.4):
+        # import matplotlib.pyplot as plt
+        intens = self.feat[i]['fdata']['I_sm_bline']
+        # intens1 = self.feat[i]['fdata']['I_raw']
+        st = self.feat[i]['fdata']['st']
+        # plt.plot(st, intens)
+        # plt.plot(st, intens1)
+        idxImax = np.argmax(intens)
+        ifwhm = intens[idxImax] / 2
+        if (idxImax <= 2) or (idxImax > (len(intens)-2)):
+            return None
+        st_imax = st[idxImax]
+        ll = np.max(st[(intens < ifwhm) & (st <= st_imax)])
+        ul = np.min(st[(intens < ifwhm) & (st >= st_imax)])
+        ll1 = st_imax - ((ul - ll) * rtDelta) / 2
+        ul1 = st_imax + ((ul - ll) * rtDelta) / 2
+        # print(f'st low: {ll1} and st high: {ul1}')
+        sub = self.l3Df[(self.l3Df['rtMaxI'] <= ul1) & (self.l3Df['rtMaxI'] >= ll1) & self.l3Df.index.isin(self.fset.keys())]
+        if sub.shape[0] == 0:
+            return None
+        else:
+            return sub
+
+
+    def _fwhmBound(self, i, rtDelta=1 - 0.4):
+        # import matplotlib.pyplot as plt
+        intens = self.feat[i]['fdata']['I_sm_bline']
+        # intens1 = self.feat[i]['fdata']['I_raw']
+        st = self.feat[i]['fdata']['st']
+        # plt.plot(st, intens)
+        # plt.plot(st, intens1)
+        idxImax = np.argmax(intens)
+        ifwhm = intens[idxImax] / 2
+        if (idxImax <= 2) or (idxImax > (len(intens)-2)):
+            return None
+        st_imax = st[idxImax]
+        ll = np.max(st[(intens < ifwhm) & (st <= st_imax)])
+        ul = np.min(st[(intens < ifwhm) & (st >= st_imax)])
+        ll1 = st_imax - ((ul - ll) * rtDelta) / 2
+        ul1 = st_imax + ((ul - ll) * rtDelta) / 2
+
+        return (ll1, ul1)
+        #
+        # # print(f'st low: {ll1} and st high: {ul1}')
+        # sub = self.l3Df[(self.l3Df['rtMaxI'] <= ul1) & (self.l3Df['rtMaxI'] >= ll1)]
+        # if sub.shape[0] == 0:
+        #     return None
+        # else:
+        #     return sub
+
+
+############# prediction of isotopologues when formula is know
 # calculate isotopic distribution of a molecular formula
 # define classes for each element
 class element:
