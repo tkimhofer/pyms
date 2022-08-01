@@ -26,11 +26,11 @@ class _findIsotopes:
         icounter = 0
         while len(self.fset) > 0:
             fid = list(self.fset.keys())[0];
-            print(fid)
+            # print(fid)
             try:
                 st_prop = self._fwhmBound_iso(fid, rtDelta=1)
             except:
-                print(fid)
+                # print(fid)
                 self.fset.pop(fid)
                 continue
 
@@ -41,7 +41,7 @@ class _findIsotopes:
             isto = self.getIP(m=None, df=st_prop, iid=fid, mz_tol=0.1, a_lb=0.2)
 
             if len(isto.fid) > 1:
-                print('---')
+                # print('---')
                 self.ipat[fid] = isto
                 iids = [x.id for k,x in isto.fid.items()]
                 ils = np.where(self.l3Df.index.isin(iids))[0]

@@ -1218,7 +1218,7 @@ class Viz:
                 fig = plt.figure()
                 ax = fig.add_subplot(111)
 
-            print(id)
+            # print(id)
             fwhm = self._fwhmBound(str(id), rtDelta=1) #(ul1, ll1)
             # print(fwhm)
             ax.vlines(fwhm[0], 0, np.max(fdict['fdata']['I_smooth']))
