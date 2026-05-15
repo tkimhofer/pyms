@@ -72,6 +72,6 @@ fig = exp.plot.consensus_feature(
   <img src="assets/ex_output3.png" width="80%">
 </p>
 
-`msmate` is currently under active development and serves both as a research playground for LC–MS algorithms and as a foundation for reproducible MS data processing workflows.
+`msmate` is currently under development and serves both as a research playground for LC–MS algorithms and as a foundation for reproducible MS data processing workflows.
 
 Feedback and suggestions are very welcome: torben@tkimhofer.dev
