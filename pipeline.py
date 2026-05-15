@@ -1,5 +1,4 @@
 
-import time
 
 from msmate.core.experiment import MsExperiment
 from msmate.core.types import ScanWindow, DBSCANParams, QCParams

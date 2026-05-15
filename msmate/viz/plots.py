@@ -830,10 +830,6 @@ class PlottingAccessor:
         if selection is None:
             selection = self.selection
 
-        # TODO:
-        # label feature with id in m/z Int plot
-        # two panel plot: bottom m/z over st, top: st vs intentsity upon click on feature
-        # basically like vis spectrum but including rectangles and all points but those in fgr feature(s) are s=0.1 and c='grey
 
         # @log
         def _vis_feature(fdict, id, ax=None, add=False):
