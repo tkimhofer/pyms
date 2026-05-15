@@ -1,9 +1,17 @@
-#
+import numpy as np
+import pandas as pd
+import networkx as nx
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from scipy.cluster import hierarchy
+from scipy.spatial.distance import pdist
+import matplotlib.pyplot as plt
+
 
 class Node:
 
     def wMean(self, x, y):
-        import numpy as np
         wm = np.sum((y / np.sum(y)) * x)
         iwm = np.argmin(np.abs(wm - x))
         return (wm, iwm)
@@ -33,10 +41,9 @@ class Node:
 
 
 class bst_search():
-    # binary seach tree
+    '''binary seach tree'''
+
     def __init__(self, x, y, depth=4, minle=100):
-        import pandas as pd
-        import numpy as np
         self.x = x
         self.y = y / np.max(y)
         self.depth = depth
@@ -109,9 +116,6 @@ class bst_search():
         return nData
 
     def vis_graph(self, xlab='Scantime (s)', ylab='Total Count', ax=None, col='green'):
-        import networkx as nx
-        import numpy as np
-        import matplotlib.pyplot as plt
 
         def srange(t, tdiff, tmin, x_diff, x_min):
             return ((x_diff * (t - tmin)) / tdiff) + x_min
@@ -161,11 +165,7 @@ class bst_search():
 
 class spec_distance():
     def __init__(self, specs, x, depth=4, minle=3, linkage='ward', **kwargs):
-        import numpy as np
-        import pandas as pd
-        from scipy.cluster import hierarchy
-        from scipy.spatial.distance import pdist
-        import matplotlib.pyplot as plt
+
 
         self.linkage = linkage
         self.rr = []
@@ -179,7 +179,6 @@ class spec_distance():
         self.wm = pd.concat(self.rr, axis=1)
 
         # calc distances
-
         D = np.zeros((self.n, self.n))
         for i in range(self.n-1):
             for j in range(i+1, self.n):
