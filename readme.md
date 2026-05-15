@@ -61,7 +61,9 @@ fig = exp.plot.consensus_feature(
 ## Example output
 
 <p align="center">
-  <img src="assets/ex_output.png" width="70%">
+  <img src="assets/ex_output2.png" width="32%">
+  <img src="assets/ex_output2.png" width="32%">
+  <img src="assets/ex_output3.png" width="32%">
 </p>
 
 `msmate` is currently under active development and serves both as a research playground for LC–MS algorithms and as a foundation for reproducible MS data processing workflows.

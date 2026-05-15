@@ -26,7 +26,7 @@ consensus, features = score_stability_fast(features, runs)
 
 # viz features
 fig = exp.plot.consensus_feature(
-    consensus_id=consensus.iloc[101]["consensus_id"],
+    consensus_id=consensus.iloc[1001]["consensus_id"],
     consensus=consensus,
     features=features,
 )
